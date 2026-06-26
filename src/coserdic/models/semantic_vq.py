@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -21,8 +22,9 @@ class SemanticVQConfig:
     num_res_blocks: int = 4
     usage_temperature: float = 1.0
     codebook_init_std: float = 0.5
-    soft_st: bool = True
+    soft_st: bool = False
     soft_st_temperature: float = 1.0
+    normalize_latent: bool = False
 
 
 class SemanticEncoder(nn.Module):
@@ -77,17 +79,27 @@ class DifferentiableVQ(nn.Module):
         flat = z.permute(0, 2, 3, 1).reshape(-1, c)
         flat_fp32 = flat.float()
         embed_fp32 = self.embedding.weight.float()
-        distances = (
-            flat_fp32.pow(2).sum(dim=1, keepdim=True)
-            + embed_fp32.pow(2).sum(dim=1)
-            - 2.0 * flat_fp32 @ embed_fp32.t()
-        )
-        soft_embed_fp32 = embed_fp32.detach() if self.cfg.ema_update else embed_fp32
-        soft_distances = (
-            flat_fp32.pow(2).sum(dim=1, keepdim=True)
-            + soft_embed_fp32.pow(2).sum(dim=1)
-            - 2.0 * flat_fp32 @ soft_embed_fp32.t()
-        )
+        scale = math.sqrt(float(c)) if self.cfg.normalize_latent else 1.0
+        if self.cfg.normalize_latent:
+            flat_assign = F.normalize(flat_fp32, dim=1)
+            embed_assign = F.normalize(embed_fp32, dim=1)
+            distances = 2.0 - 2.0 * flat_assign @ embed_assign.t()
+            soft_embed_assign = embed_assign.detach() if self.cfg.ema_update else embed_assign
+            soft_distances = 2.0 - 2.0 * flat_assign @ soft_embed_assign.t()
+        else:
+            flat_assign = flat_fp32
+            embed_assign = embed_fp32
+            distances = (
+                flat_fp32.pow(2).sum(dim=1, keepdim=True)
+                + embed_fp32.pow(2).sum(dim=1)
+                - 2.0 * flat_fp32 @ embed_fp32.t()
+            )
+            soft_embed_assign = embed_fp32.detach() if self.cfg.ema_update else embed_fp32
+            soft_distances = (
+                flat_fp32.pow(2).sum(dim=1, keepdim=True)
+                + soft_embed_assign.pow(2).sum(dim=1)
+                - 2.0 * flat_fp32 @ soft_embed_assign.t()
+            )
         assignment_probs = F.softmax(
             -soft_distances / max(self.cfg.soft_st_temperature, 1.0e-6),
             dim=1,
@@ -95,24 +107,28 @@ class DifferentiableVQ(nn.Module):
         usage_probs = F.softmax(-soft_distances / max(self.cfg.usage_temperature, 1.0e-6), dim=1)
         indices = torch.argmin(distances, dim=1)
         encodings = F.one_hot(indices, self.cfg.codebook_size).to(flat_fp32.dtype)
-        quant_flat = encodings @ embed_fp32
+        target_flat = flat_assign * scale
+        quant_basis = embed_assign * scale
+        soft_quant_basis = soft_embed_assign * scale
+        quant_flat = encodings @ quant_basis
         quant = quant_flat.view(b, h, w, c).permute(0, 3, 1, 2).contiguous().to(z.dtype)
-        soft_quant_flat = assignment_probs @ soft_embed_fp32
+        target = target_flat.view(b, h, w, c).permute(0, 3, 1, 2).contiguous().to(z.dtype)
+        soft_quant_flat = assignment_probs @ soft_quant_basis
         soft_quant = soft_quant_flat.view(b, h, w, c).permute(0, 3, 1, 2).contiguous().to(z.dtype)
 
         if self.training and self.cfg.ema_update:
-            self._ema_update(flat_fp32, encodings)
+            self._ema_update(flat_assign, encodings)
 
-        commitment = F.mse_loss(z, quant.detach())
+        commitment = F.mse_loss(target, quant.detach())
         if self.cfg.ema_update:
             codebook_loss = z.new_tensor(0.0)
         else:
-            codebook_loss = F.mse_loss(quant, z.detach())
+            codebook_loss = F.mse_loss(quant, target.detach())
         loss = codebook_loss + self.cfg.commitment_weight * commitment
         if self.cfg.soft_st:
             quant_st = soft_quant + (quant - soft_quant).detach()
         else:
-            quant_st = z + (quant - z).detach()
+            quant_st = target + (quant - target).detach()
 
         avg_probs = encodings.float().mean(dim=0)
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1.0e-10)))
@@ -125,6 +141,7 @@ class DifferentiableVQ(nn.Module):
 
         return {
             "quantized": quant_st,
+            "continuous": target,
             "indices": indices.view(b, h, w),
             "loss": loss,
             "commitment_loss": commitment.detach(),
@@ -165,6 +182,6 @@ class SemanticVQAutoEncoder(nn.Module):
             raise ValueError("quantize_mix must be in [0, 1]")
         h = self.encoder(x)
         q = self.vq(h)
-        decoder_input = quantize_mix * q["quantized"] + (1.0 - quantize_mix) * h
+        decoder_input = quantize_mix * q["quantized"] + (1.0 - quantize_mix) * q["continuous"]
         x_sem = self.decoder(decoder_input)
         return {"x_sem": x_sem, "h": h, **q}

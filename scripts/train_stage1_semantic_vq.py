@@ -75,6 +75,8 @@ def make_config(
     debug_small: bool,
     codebook_size: int | None = None,
     ema_update: bool | None = None,
+    soft_st: bool | None = None,
+    normalize_latent: bool | None = None,
 ) -> SemanticVQConfig:
     model = raw["model"]
     enc = model["semantic_encoder"]
@@ -88,8 +90,10 @@ def make_config(
             commitment_weight=float(vq["commitment_weight"]),
             ema_update=bool(vq["ema_update"]) if ema_update is None else ema_update,
             num_res_blocks=1,
-            soft_st=bool(vq.get("soft_st", True)),
+            usage_temperature=float(vq.get("usage_temperature", 1.0)),
+            soft_st=bool(vq.get("soft_st", False)) if soft_st is None else soft_st,
             soft_st_temperature=float(vq.get("soft_st_temperature", 1.0)),
+            normalize_latent=bool(vq.get("normalize_latent", False)) if normalize_latent is None else normalize_latent,
         )
     return SemanticVQConfig(
         base_channels=int(enc["base_channels"]),
@@ -98,9 +102,53 @@ def make_config(
         commitment_weight=float(vq["commitment_weight"]),
         ema_update=bool(vq["ema_update"]) if ema_update is None else ema_update,
         num_res_blocks=int(dec["num_res_blocks"]),
-        soft_st=bool(vq.get("soft_st", True)),
+        usage_temperature=float(vq.get("usage_temperature", 1.0)),
+        soft_st=bool(vq.get("soft_st", False)) if soft_st is None else soft_st,
         soft_st_temperature=float(vq.get("soft_st_temperature", 1.0)),
+        normalize_latent=bool(vq.get("normalize_latent", False)) if normalize_latent is None else normalize_latent,
     )
+
+
+@torch.no_grad()
+def init_codebook_from_encoder(
+    model: SemanticVQAutoEncoder,
+    loader: DataLoader,
+    device: torch.device,
+    max_vectors: int,
+) -> dict[str, float]:
+    was_training = model.training
+    model.eval()
+    vectors: list[torch.Tensor] = []
+    total = 0
+    for x in loader:
+        x = x.to(device, non_blocking=True)
+        h = model.encoder(x).float().permute(0, 2, 3, 1).reshape(-1, model.vq.cfg.latent_channels)
+        vectors.append(h.detach().cpu())
+        total += h.shape[0]
+        if total >= max(model.vq.cfg.codebook_size, max_vectors):
+            break
+    if was_training:
+        model.train()
+
+    source = torch.cat(vectors, dim=0)
+    if source.numel() == 0:
+        raise RuntimeError("no encoder vectors collected for codebook initialization")
+    codebook_size = model.vq.cfg.codebook_size
+    if source.shape[0] >= codebook_size:
+        selected = source[torch.randperm(source.shape[0])[:codebook_size]]
+    else:
+        selected = source[torch.randint(0, source.shape[0], (codebook_size,))]
+
+    selected = selected.to(device=device, dtype=model.vq.embedding.weight.dtype)
+    model.vq.embedding.weight.data.copy_(selected)
+    model.vq.ema_embed.data.copy_(selected.float())
+    model.vq.ema_cluster_size.data.fill_(1.0)
+    return {
+        "source_vectors": float(source.shape[0]),
+        "codebook_init_mean": float(selected.float().mean().detach().cpu()),
+        "codebook_init_std": float(selected.float().std(unbiased=False).detach().cpu()),
+        "codebook_init_absmax": float(selected.float().abs().max().detach().cpu()),
+    }
 
 
 def write_run_doc(path: Path, payload: dict) -> None:
@@ -142,9 +190,23 @@ def main() -> None:
     parser.add_argument("--debug-small", action="store_true")
     parser.add_argument("--codebook-size", type=int, default=0)
     parser.add_argument("--no-ema", action="store_true")
+    parser.add_argument("--soft-st", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--normalize-latent", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--quantize-warmup-steps", type=int, default=-1)
+    parser.add_argument("--fixed-quantize-mix", type=float, default=-1.0)
     parser.add_argument("--vq-warmup-steps", type=int, default=-1)
     parser.add_argument("--usage-warmup-steps", type=int, default=-1)
+    parser.add_argument("--init-checkpoint", default="")
+    parser.add_argument("--init-load-codebook", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--reinit-codebook-from-encoder", action="store_true")
+    parser.add_argument("--codebook-init-max-vectors", type=int, default=65536)
+    parser.add_argument("--lr", type=float, default=0.0)
+    parser.add_argument("--loss-l1-sem", type=float, default=-1.0)
+    parser.add_argument("--loss-ms-ssim-sem", type=float, default=-1.0)
+    parser.add_argument("--loss-lpips-sem", type=float, default=-1.0)
+    parser.add_argument("--loss-vq", type=float, default=-1.0)
+    parser.add_argument("--loss-codebook-usage", type=float, default=-1.0)
+    parser.add_argument("--grad-clip-norm", type=float, default=0.0)
     parser.add_argument("--disable-lpips", action="store_true")
     parser.add_argument("--wandb-mode", default="offline")
     parser.add_argument("--run-name", default="")
@@ -178,19 +240,54 @@ def main() -> None:
         args.debug_small,
         codebook_size=args.codebook_size or None,
         ema_update=False if args.no_ema else None,
+        soft_st=args.soft_st,
+        normalize_latent=args.normalize_latent,
     )
     model = SemanticVQAutoEncoder(cfg).to(device)
+    init_summary: dict[str, object] = {}
+    if args.init_checkpoint:
+        init_checkpoint = torch.load(args.init_checkpoint, map_location="cpu", weights_only=False)
+        state_dict = init_checkpoint["model"]
+        if not args.init_load_codebook:
+            state_dict = {k: v for k, v in state_dict.items() if not k.startswith("vq.")}
+        load_result = model.load_state_dict(state_dict, strict=False)
+        init_summary["init_checkpoint"] = args.init_checkpoint
+        init_summary["init_load_codebook"] = args.init_load_codebook
+        init_summary["missing_keys"] = list(load_result.missing_keys)
+        init_summary["unexpected_keys"] = list(load_result.unexpected_keys)
+    if args.reinit_codebook_from_encoder:
+        init_summary["encoder_codebook_init"] = init_codebook_from_encoder(
+            model,
+            loader,
+            device,
+            max_vectors=args.codebook_init_max_vectors,
+        )
+    model.train()
     weights = Stage1LossWeights(
-        l1_sem=float(raw["loss"]["l1_sem"]),
-        ms_ssim_sem=float(raw["loss"]["ms_ssim_sem"]),
-        lpips_sem=0.0 if args.disable_lpips else float(raw["loss"]["lpips_sem"]),
-        vq=1.0,
-        codebook_usage=float(raw["loss"]["codebook_usage"]),
+        l1_sem=args.loss_l1_sem if args.loss_l1_sem >= 0 else float(raw["loss"]["l1_sem"]),
+        ms_ssim_sem=(
+            args.loss_ms_ssim_sem
+            if args.loss_ms_ssim_sem >= 0
+            else float(raw["loss"]["ms_ssim_sem"])
+        ),
+        lpips_sem=(
+            0.0
+            if args.disable_lpips
+            else args.loss_lpips_sem
+            if args.loss_lpips_sem >= 0
+            else float(raw["loss"]["lpips_sem"])
+        ),
+        vq=args.loss_vq if args.loss_vq >= 0 else float(raw["loss"].get("vq", 1.0)),
+        codebook_usage=(
+            args.loss_codebook_usage
+            if args.loss_codebook_usage >= 0
+            else float(raw["loss"]["codebook_usage"])
+        ),
     )
     loss_fn = Stage1SemanticVQLoss(weights, use_lpips=not args.disable_lpips).to(device)
     opt = torch.optim.AdamW(
         model.parameters(),
-        lr=float(raw["optimization"]["lr"]),
+        lr=args.lr if args.lr > 0 else float(raw["optimization"]["lr"]),
         weight_decay=float(raw["optimization"]["weight_decay"]),
     )
     scaler = torch.amp.GradScaler("cuda", enabled=bool(raw["optimization"]["mixed_precision"]))
@@ -225,9 +322,13 @@ def main() -> None:
             "max_steps": args.max_steps,
             "batch_size": args.batch_size,
             "model": cfg.__dict__,
+            "loss_weights": weights.__dict__,
+            "initialization": init_summary,
             "quantize_warmup_steps": quantize_warmup_steps,
+            "fixed_quantize_mix": args.fixed_quantize_mix,
             "vq_warmup_steps": vq_warmup_steps,
             "usage_warmup_steps": usage_warmup_steps,
+            "grad_clip_norm": args.grad_clip_norm,
         },
     )
 
@@ -245,7 +346,13 @@ def main() -> None:
             step += 1
             x = x.to(device, non_blocking=True)
             opt.zero_grad(set_to_none=True)
-            quantize_mix = linear_warmup_scale(step, quantize_warmup_steps)
+            quantize_mix = (
+                args.fixed_quantize_mix
+                if args.fixed_quantize_mix >= 0
+                else linear_warmup_scale(step, quantize_warmup_steps)
+            )
+            if not 0.0 <= quantize_mix <= 1.0:
+                raise ValueError("--fixed-quantize-mix must be in [0, 1]")
             vq_scale = linear_warmup_scale(step, vq_warmup_steps)
             usage_scale = linear_warmup_scale(step, usage_warmup_steps)
             with torch.amp.autocast("cuda", enabled=bool(raw["optimization"]["mixed_precision"])):
@@ -254,11 +361,18 @@ def main() -> None:
             if not torch.isfinite(losses["total"]):
                 raise FloatingPointError(f"non-finite Stage 1 loss at step {step}: {losses}")
             scaler.scale(losses["total"]).backward()
+            grad_norm = None
+            if args.grad_clip_norm > 0:
+                scaler.unscale_(opt)
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm)
+                if not torch.isfinite(grad_norm):
+                    raise FloatingPointError(f"non-finite gradient norm at step {step}: {grad_norm}")
             scaler.step(opt)
             scaler.update()
 
             with torch.no_grad():
                 x_sem = out["x_sem"].clamp(0, 1)
+                x_sem_channels = x_sem.mean(dim=(0, 2, 3))
                 last_metrics = {
                     "loss_total": float(losses["total"].detach().cpu()),
                     "loss_l1_sem": float(losses["l1_sem"].cpu()),
@@ -273,9 +387,23 @@ def main() -> None:
                     "vq_scale": vq_scale,
                     "usage_scale": usage_scale,
                     "psnr_sem": psnr(x, x_sem),
+                    "x_sem_mean": float(x_sem.mean().cpu()),
+                    "x_sem_std": float(x_sem.std(unbiased=False).cpu()),
+                    "x_sem_min": float(x_sem.min().cpu()),
+                    "x_sem_max": float(x_sem.max().cpu()),
+                    "x_sem_r_mean": float(x_sem_channels[0].cpu()),
+                    "x_sem_g_mean": float(x_sem_channels[1].cpu()),
+                    "x_sem_b_mean": float(x_sem_channels[2].cpu()),
+                    "h_mean": float(out["h"].mean().cpu()),
+                    "h_std": float(out["h"].std(unbiased=False).cpu()),
+                    "h_absmax": float(out["h"].abs().max().cpu()),
+                    "continuous_std": float(out["continuous"].std(unbiased=False).cpu()),
+                    "quantized_std": float(out["quantized"].std(unbiased=False).cpu()),
                     "lr": opt.param_groups[0]["lr"],
                     "step": step,
                 }
+                if grad_norm is not None:
+                    last_metrics["grad_norm"] = float(grad_norm.detach().cpu())
 
             if step % args.log_every == 0 or step == 1:
                 wandb.log(last_metrics, step=step)

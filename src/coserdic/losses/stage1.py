@@ -11,7 +11,7 @@ from torch import nn
 @dataclass(frozen=True)
 class Stage1LossWeights:
     l1_sem: float = 1.0
-    ms_ssim_sem: float = 0.2
+    ms_ssim_sem: float = 0.0
     lpips_sem: float = 0.0
     vq: float = 1.0
     codebook_usage: float = 0.01
@@ -38,7 +38,10 @@ class Stage1SemanticVQLoss(nn.Module):
     ) -> dict[str, torch.Tensor]:
         x_sem = out["x_sem"]
         l1 = F.l1_loss(x_sem, x)
-        ms = 1.0 - ms_ssim(x_sem, x, data_range=1.0, size_average=True)
+        if self.weights.ms_ssim_sem > 0:
+            ms = 1.0 - ms_ssim(x_sem.float(), x.float(), data_range=1.0, size_average=True)
+        else:
+            ms = x.new_tensor(0.0)
         if self.lpips_model is None:
             lp = x.new_tensor(0.0)
         else:

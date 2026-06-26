@@ -33,7 +33,7 @@ external/pretrained/*
 
 data/
 tmp/
-logs/
+/logs/
 *.log
 
 # Original handoff input. The tracked frozen copy is under docs/specs/.

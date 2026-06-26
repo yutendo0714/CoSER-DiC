@@ -20,8 +20,13 @@ model:
     ema_update: false
     temperature_init: 1.0
     temperature_final: 0.1
-    soft_st: true
+    # Current default is the least surprising Stage 1 baseline: hard straight-
+    # through VQ in the native latent space. soft-ST and normalized cosine VQ
+    # remain ablation options, but early 1k probes collapsed faster with them.
+    usage_temperature: 1.0
+    soft_st: false
     soft_st_temperature: 1.0
+    normalize_latent: false
   semantic_aux_decoder:
     base_channels: 128
     num_res_blocks: 4
@@ -40,16 +45,23 @@ optimization:
   weight_decay: 1.0e-4
   mixed_precision: true
   ema: true
-  quantize_mix_warmup_steps: 2000
+  quantize_mix_warmup_steps: 0
 
 loss:
   l1_sem: 1.0
-  ms_ssim_sem: 0.2
-  lpips_sem: 0.1
+  # pytorch-msssim produced non-finite gradients at Stage 1 initialization
+  # even when the scalar loss was finite. Keep it as an evaluation metric until
+  # a stable perceptual/SSIM surrogate is introduced.
+  ms_ssim_sem: 0.0
+  # LPIPS is useful as a perceptual metric/ablation, but it introduced
+  # occasional non-finite gradients in hard-VQ Stage 1 probes. Keep the Core
+  # MVP semantic tokenizer baseline L1-driven unless explicitly overridden.
+  lpips_sem: 0.0
+  vq: 1.0
   vq_commitment: 0.25
   codebook_usage: 0.05
-  vq_warmup_steps: 1000
-  usage_warmup_steps: 1000
+  vq_warmup_steps: 0
+  usage_warmup_steps: 0
 
 logging:
   save_codebook_usage: true

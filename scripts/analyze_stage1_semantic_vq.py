@@ -110,6 +110,7 @@ def main() -> None:
     parser.add_argument("--max-images", type=int, default=64)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--quantize-mix", type=float, default=1.0)
     parser.add_argument("--wandb-mode", default="offline")
     parser.add_argument("--run-name", default="")
     args = parser.parse_args()
@@ -117,6 +118,8 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
         raise RuntimeError("CUDA is not visible; stop and restart the container before analysis.")
+    if not 0.0 <= args.quantize_mix <= 1.0:
+        raise ValueError("--quantize-mix must be in [0, 1]")
 
     checkpoint_path = Path(args.checkpoint)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -160,6 +163,7 @@ def main() -> None:
             "roots": roots,
             "max_images": args.max_images,
             "crop_size": args.crop_size,
+            "quantize_mix": args.quantize_mix,
         },
     )
 
@@ -177,7 +181,7 @@ def main() -> None:
     with torch.no_grad():
         for batch in tqdm(loader, desc=run_name):
             x = batch["image"].to(device, non_blocking=True)
-            out = model(x)
+            out = model(x, quantize_mix=args.quantize_mix)
             x_sem = out["x_sem"].clamp(0, 1)
             indices = out["indices"].detach().cpu()
             code_hist.scatter_add_(0, indices.reshape(-1), torch.ones(indices.numel(), dtype=torch.long))
@@ -229,6 +233,7 @@ def main() -> None:
     }
     summary = {
         "checkpoint": str(checkpoint_path),
+        "quantize_mix": args.quantize_mix,
         "num_images": len(dataset),
         "total_tokens": total_tokens,
         "active_codes_global": active_codes,
