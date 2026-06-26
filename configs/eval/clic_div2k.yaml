@@ -1,0 +1,35 @@
+datasets:
+  clic_valid:
+    path: /dpl/clic/professional/valid
+    full_resolution: true
+  div2k:
+    path: /dpl/div2k
+    full_resolution: true
+
+evaluation:
+  use_compress_decompress: true
+  forward_only_debug: false
+  pad_to_multiple: 64
+  remove_padding_before_metric: true
+  save_bitstreams: true
+  save_reconstructions: true
+  deterministic_decoder: true
+
+metrics:
+  actual_bpp: true
+  estimated_bpp: true
+  bpp_decomposition: true
+  psnr_rgb: true
+  psnr_y: true
+  ms_ssim_rgb: true
+  lpips_alex: true
+  dists: true
+  fid: true
+  kid: true
+  dino_similarity: optional
+  clip_similarity: optional
+  runtime: true
+
+report:
+  output_dir: results/eval/clic_div2k
+

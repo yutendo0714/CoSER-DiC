@@ -1,0 +1,34 @@
+defaults:
+  - /data/paths
+
+dataset:
+  name: kodak
+  path: /dpl/kodak
+  full_resolution: true
+  crop: false
+
+evaluation:
+  use_compress_decompress: true
+  forward_only_debug: false
+  pad_to_multiple: 64
+  remove_padding_before_metric: true
+  save_bitstreams: true
+  save_reconstructions: true
+  deterministic_decoder: true
+
+metrics:
+  actual_bpp: true
+  estimated_bpp: true
+  bpp_decomposition: true
+  psnr_rgb: true
+  psnr_y: true
+  ms_ssim_rgb: true
+  lpips_alex: true
+  dists: true
+  fid: false
+  kid: false
+  runtime: true
+
+report:
+  output_dir: results/eval/kodak
+

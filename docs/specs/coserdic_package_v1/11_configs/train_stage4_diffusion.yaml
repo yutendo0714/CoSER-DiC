@@ -1,0 +1,37 @@
+experiment:
+  name: coserdic_stage4_diffusion
+  seed: 42
+
+model:
+  load_stage3_checkpoint: null
+  diffusion_decoder:
+    type: one_step
+    initialization: cod_lite_or_stablecodec_or_onedc
+    freeze_backbone_initially: true
+    train_adapters: true
+    conditioning:
+      aux_image: true
+      semantic_tokens: true
+      detail_latents: true
+      rate_embedding: true
+      mode: film_multiscale
+
+optimization:
+  optimizer: adamw
+  lr_adapter: 1.0e-5
+  lr_backbone: 0.0
+  mixed_precision: true
+
+loss:
+  rate_total: 1.0
+  l1_hat: 0.5
+  lpips_hat: 0.3
+  dists_hat: 0.2
+  adversarial: 0.05
+  semantic_consistency: 0.1
+  l1_aux_anchor: 0.5
+
+validation:
+  compare_x_aux_and_x_hat: true
+  report_semantic_metrics: true
+  save_failure_candidates: true

@@ -1,0 +1,39 @@
+method: null
+paper_title: null
+paper_url: null
+repo_url: null
+repo_commit: null
+license_checked: false
+checkpoint_source: null
+checkpoint_hash: null
+actual_bpp_available: null
+estimated_bpp_only: null
+
+setup:
+  environment_file: null
+  python_version: null
+  pytorch_version: null
+  cuda_version: null
+  gpu: null
+
+preprocessing:
+  color_space: RGB
+  value_range: [0, 1]
+  padding: null
+  crop: false
+
+metrics:
+  pipeline_version: null
+  psnr_rgb: null
+  psnr_y: null
+  ms_ssim: null
+  lpips: null
+  dists: null
+  fid: null
+  kid: null
+
+notes:
+  reproduction_status: null
+  deviations_from_official: null
+  issues: null
+  usable_for_main_table: false

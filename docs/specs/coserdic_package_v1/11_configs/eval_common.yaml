@@ -1,0 +1,42 @@
+evaluation:
+  use_compress_decompress: true
+  forward_only_debug: false
+  pad_to_multiple: 64
+  remove_padding_before_metric: true
+  color_space: RGB
+  value_range: [0, 1]
+  deterministic_decoder: true
+
+metrics:
+  rate:
+    actual_bpp: true
+    estimated_bpp: true
+    bpp_decomposition: true
+  distortion:
+    psnr_rgb: true
+    psnr_y: true
+    ms_ssim_rgb: true
+  perceptual:
+    lpips_alex: true
+    dists: true
+  distribution:
+    fid: dataset_dependent
+    kid: dataset_dependent
+  semantic:
+    dino_similarity: optional
+    clip_similarity: optional
+    segmentation_consistency: optional
+  critical:
+    ocr_accuracy: optional
+    face_id_similarity: optional
+  runtime:
+    encode_time: true
+    decode_time: true
+    arithmetic_coding_time: true
+    gpu_memory: true
+
+reporting:
+  save_reconstructions: true
+  save_bitstreams: true
+  save_metric_json: true
+  save_visual_crops: true

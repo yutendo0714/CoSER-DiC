@@ -1,0 +1,32 @@
+experiment:
+  name: coserdic_stage2_semantic_entropy
+  seed: 42
+
+model:
+  load_stage1_checkpoint: null
+  semantic_entropy:
+    hyperprior: true
+    grouped_context: true
+    full_autoregressive: false
+    low_rank_logits: true
+    cdf_precision: 16
+
+optimization:
+  optimizer: adamw
+  lr_main: 5.0e-5
+  lr_entropy: 5.0e-5
+  mixed_precision: true
+
+loss:
+  rate_semantic: 1.0
+  l1_sem: 1.0
+  lpips_sem: 0.1
+  vq_commitment: 0.25
+
+sweep:
+  rate_semantic: [0.25, 0.5, 1.0, 2.0, 4.0]
+
+validation:
+  report_estimated_bpp: true
+  report_actual_bpp: true
+  save_bitstreams: true

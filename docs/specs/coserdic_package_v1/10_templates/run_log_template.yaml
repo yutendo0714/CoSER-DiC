@@ -1,0 +1,59 @@
+run:
+  run_id: null
+  date: null
+  git_commit: null
+  config_file: null
+  config_hash: null
+  seed: null
+  stage: null
+  model_variant: null
+  checkpoint: null
+
+data:
+  train_dataset: null
+  train_split: null
+  eval_dataset: null
+  eval_split: null
+  preprocessing: null
+  pad_to_multiple: 64
+
+rate:
+  target_bpp: null
+  estimated_bpp_total: null
+  actual_bpp_total: null
+  semantic_bpp: null
+  semantic_hyper_bpp: null
+  detail_bpp: null
+  detail_hyper_bpp: null
+  header_bpp: null
+  control_bpp: null
+  estimated_actual_gap: null
+
+metrics:
+  psnr_rgb: null
+  psnr_y: null
+  ms_ssim: null
+  lpips_alex: null
+  dists: null
+  fid: null
+  kid: null
+  dino_similarity: null
+  clip_similarity: null
+  ocr_accuracy: null
+  face_id_similarity: null
+
+runtime:
+  gpu: null
+  cuda: null
+  pytorch: null
+  encode_time_ms: null
+  decode_time_ms: null
+  arithmetic_coding_time_ms: null
+  peak_memory_gb: null
+  params_m: null
+  diffusion_steps: null
+
+notes:
+  summary: null
+  known_issues: null
+  next_action: null

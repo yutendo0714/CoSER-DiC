@@ -1,0 +1,30 @@
+experiment:
+  name: coserdic_variable_rate
+  seed: 42
+
+model:
+  load_joint_checkpoint: null
+  rate_conditioning: true
+  rate_levels: [0.003, 0.005, 0.01, 0.02, 0.03, 0.05]
+  rate_embedding_dim: 128
+  condition_targets:
+    semantic_entropy: true
+    detail_entropy: true
+    diffusion_decoder: true
+    quantization_scale: false_initially
+
+sampling:
+  rate_level_sampling: uniform
+  perception_level_sampling: disabled_initially
+
+loss:
+  rate_total: 1.0
+  target_rate_penalty: 0.0_initially
+  l1_hat: 0.5
+  lpips_hat: 0.3
+  dists_hat: 0.2
+  aux_anchor: 0.5
+
+validation:
+  evaluate_all_rate_levels: true
+  use_actual_bitstream: true

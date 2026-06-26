@@ -1,0 +1,166 @@
+baselines:
+  compressai:
+    priority: A
+    category: rd_lic_platform
+    repo: https://github.com/InterDigitalInc/CompressAI.git
+    paper_or_project: https://github.com/InterDigitalInc/CompressAI
+    license_hint: BSD-3-Clause-Clear
+    role: Hyperprior, joint autoregressive, Cheng2020, and classical codec evaluation anchors.
+    clone: false
+    install_mode: pip
+    actual_bpp: true
+    checkpoint_status: model_zoo
+
+  glc:
+    priority: A
+    category: vq_generative_low_bitrate
+    repo: https://github.com/jzyustc/GLC.git
+    paper_or_project: https://github.com/jzyustc/GLC
+    license_hint: Apache-2.0
+    role: VQ-VAE latent-space generative coding; direct ultra-low bitrate baseline.
+    clone: true
+    install_mode: external
+    actual_bpp: verify
+    checkpoint_status: release_page
+
+  rdvq:
+    priority: A
+    category: rd_aware_vq
+    repo: https://github.com/CVL-UESTC/RDVQ.git
+    paper_or_project: https://arxiv.org/abs/2604.10546
+    license_hint: MIT
+    role: Differentiable VQ with rate feedback to encoder/codebook; closest semantic VQ reference.
+    clone: true
+    install_mode: external
+    actual_bpp: true
+    checkpoint_status: verify
+
+  dlf:
+    priority: A
+    category: semantic_detail_vq
+    repo: https://github.com/dlfcodec/Dual-generative-Latent-Fusion.git
+    paper_or_project: https://dlfcodec.github.io/
+    license_hint: Apache-2.0
+    role: Dual semantic/detail latent fusion; closest decomposition competitor.
+    clone: true
+    install_mode: external
+    actual_bpp: verify
+    checkpoint_status: verify
+
+  resulic:
+    priority: A
+    category: residual_diffusion_low_bitrate
+    repo: https://github.com/NJUVISION/ResULIC.git
+    paper_or_project: https://github.com/NJUVISION/ResULIC
+    license_hint: BSD-3-Clause
+    role: Semantic residual coding plus compression-aware diffusion; direct competitor.
+    clone: true
+    install_mode: external
+    actual_bpp: verify
+    checkpoint_status: modelscope_links
+
+  stablecodec:
+    priority: A
+    category: one_step_diffusion_codec
+    repo: https://github.com/LuizScarlet/StableCodec.git
+    paper_or_project: https://arxiv.org/abs/2506.21977
+    license_hint: MIT
+    role: One-step diffusion baseline with dual-branch coding and pretrained checkpoints.
+    clone: true
+    install_mode: external
+    actual_bpp: verify
+    checkpoint_status: released
+
+  gencodec:
+    priority: A
+    category: compression_native_diffusion
+    repo: https://github.com/microsoft/GenCodec.git
+    paper_or_project: https://github.com/microsoft/GenCodec
+    license_hint: MIT
+    role: CoD and CoD-Lite; candidate diffusion decoder initialization and baseline.
+    clone: true
+    install_mode: external
+    actual_bpp: verify
+    checkpoint_status: huggingface
+
+  aeic:
+    priority: A
+    category: real_time_extreme_diffusion
+    repo: https://github.com/LuizScarlet/AEIC.git
+    paper_or_project: https://github.com/LuizScarlet/AEIC
+    license_hint: MIT
+    role: Shallow/moderate encoder ultra-low bitrate perceptual codec; runtime-aware comparator.
+    clone: true
+    install_mode: external
+    actual_bpp: true_with_flag
+    checkpoint_status: released
+
+  onedc:
+    priority: B
+    category: one_step_diffusion_semantic_distillation
+    repo: https://github.com/onedc-codec/onedc.git
+    paper_or_project: https://onedc-codec.github.io/
+    license_hint: CC-BY-NC-SA-4.0_plus_components
+    role: One-step diffusion with hyperprior semantic distillation; strong conceptual reference.
+    clone: true
+    install_mode: external
+    actual_bpp: verify
+    checkpoint_status: released
+
+  control_gic:
+    priority: B
+    category: controllable_generative_vq
+    repo: https://github.com/lianqi1008/Control-GIC.git
+    paper_or_project: https://arxiv.org/abs/2406.00758
+    license_hint: verify
+    role: Dynamic granularity and once-for-all variable-rate VQGAN compression.
+    clone: true
+    install_mode: external
+    actual_bpp: verify
+    checkpoint_status: released
+
+  hpcm:
+    priority: B
+    category: rd_entropy_model
+    repo: https://github.com/lyq133/LIC-HPCM.git
+    paper_or_project: https://arxiv.org/abs/2507.19125
+    license_hint: MIT
+    role: Hierarchical progressive context modeling; entropy-model reference for later residual stream.
+    clone: true
+    install_mode: external
+    actual_bpp: true
+    checkpoint_status: released
+
+  mambaic:
+    priority: C
+    category: state_space_rd_lic
+    repo: https://github.com/AuroraZengfh/MambaIC.git
+    paper_or_project: https://openaccess.thecvf.com/content/CVPR2025/html/Zeng_MambaIC_State_Space_Models_for_High-Performance_Learned_Image_Compression_CVPR_2025_paper.html
+    license_hint: verify
+    role: State-space architecture reference; optional for complexity/performance comparisons.
+    clone: false
+    install_mode: external
+    actual_bpp: verify
+    checkpoint_status: verify
+
+security_and_task_references:
+  robust_nic:
+    paper_or_project: https://arxiv.org/abs/2112.08691
+    role: Adversarial perturbation analysis and defenses for neural image compression.
+  training_free_defense:
+    paper_or_project: https://arxiv.org/abs/2401.11902
+    role: Random transform two-way compression defense without retraining.
+  backdoor_dic:
+    paper_or_project: https://arxiv.org/abs/2302.14677
+    role: Adaptive DCT-frequency backdoor triggers against deep image compression.
+  psic:
+    repo: https://github.com/JiayinXu5499/PSIC.git
+    paper_or_project: https://arxiv.org/abs/2506.15201
+    role: Privacy-shielded compression against VLP/VLM exploitation.
+  lvml_codec:
+    paper_or_project: https://arxiv.org/abs/2407.17060
+    role: Downstream-aware image compression for large vision-language models.
+  s2_cot:
+    repo: https://github.com/Brock-bit4/S2-CoT.git
+    paper_or_project: https://arxiv.org/abs/2604.10017
+    role: Parameter-efficient structure/semantic co-tuning, including entropy-model adapters.

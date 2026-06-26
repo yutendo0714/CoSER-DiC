@@ -1,0 +1,41 @@
+experiment:
+  name: coserdic_stage3_residual
+  seed: 42
+
+model:
+  load_stage2_checkpoint: null
+  freeze_semantic_initially: true
+  detail_encoder:
+    input_channels: 12
+    output_channels: 64
+    downsample_factor: 32
+    semantic_film: true
+  detail_entropy:
+    distribution: gaussian
+    hyperprior: true
+    semantic_conditioned: true
+    hyper_channels: 96
+    min_scale: 0.11
+  joint_aux_decoder:
+    input_channels: 320
+    base_channels: 128
+    num_res_blocks: 6
+
+optimization:
+  optimizer: adamw
+  lr_main: 1.0e-4
+  lr_entropy: 5.0e-5
+  mixed_precision: true
+
+loss:
+  rate_semantic: 1.0
+  rate_detail: 4.0
+  l1_aux: 1.0
+  ms_ssim_aux: 0.2
+  lpips_aux: 0.2
+  dists_aux: 0.1
+
+sweep:
+  rate_semantic: [0.5, 1.0, 2.0]
+  rate_detail: [1.0, 2.0, 4.0, 8.0]
+  detail_channels: [32, 64]

@@ -1,0 +1,41 @@
+experiment:
+  name: coserdic_stage5_joint_finetune
+  seed: 42
+
+model:
+  load_stage4_checkpoint: null
+  train_all_modules: true
+  low_lr_modules:
+    - vq_codebook
+    - entropy_models
+    - diffusion_backbone
+
+optimization:
+  optimizer: adamw
+  mixed_precision: true
+  lr:
+    semantic_encoder: 5.0e-5
+    vq_codebook: 1.0e-6
+    semantic_entropy: 2.0e-5
+    detail_encoder: 5.0e-5
+    detail_entropy: 2.0e-5
+    aux_decoder: 5.0e-5
+    diffusion_adapter: 1.0e-5
+    diffusion_backbone: 0.0
+
+loss:
+  rate_semantic: 1.0
+  rate_detail: 4.0
+  l1_hat: 0.5
+  ms_ssim_hat: 0.1
+  lpips_hat: 0.3
+  dists_hat: 0.2
+  l1_aux_anchor: 0.5
+  semantic_consistency: 0.1
+  adversarial: 0.05
+
+validation:
+  use_actual_bitstream: true
+  datasets: [kodak, clic_val, div2k_val]
+  save_reconstructions: true
+  save_failure_gallery: true

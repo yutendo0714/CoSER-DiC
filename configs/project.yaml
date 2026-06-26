@@ -1,0 +1,22 @@
+project:
+  name: coserdic
+  artifact_root: artifacts
+  checkpoint_root: checkpoints
+  result_root: results
+  bitstream_root: bitstreams
+  output_root: outputs
+
+wandb:
+  project: ${oc.env:WANDB_PROJECT,coserdic}
+  entity: ${oc.env:WANDB_ENTITY,null}
+  mode: ${oc.env:WANDB_MODE,online}
+  tags:
+    - coserdic
+    - learned-image-compression
+    - actual-bpp
+
+reproducibility:
+  seed: 42
+  deterministic_eval: true
+  cudnn_benchmark_train: true
+

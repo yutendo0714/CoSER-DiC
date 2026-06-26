@@ -1,0 +1,28 @@
+dataset:
+  name: kodak
+  path: /path/to/kodak
+  full_resolution: true
+  crop: false
+
+evaluation:
+  use_compress_decompress: true
+  pad_to_multiple: 64
+  remove_padding_before_metric: true
+  save_bitstreams: true
+  save_reconstructions: true
+
+metrics:
+  actual_bpp: true
+  estimated_bpp: true
+  psnr_rgb: true
+  psnr_y: true
+  ms_ssim_rgb: true
+  lpips_alex: true
+  dists: true
+  fid: false
+  kid: false
+  runtime: true
+
+report:
+  output_json: results/kodak_metrics.json
+  output_table: results/kodak_table.md

@@ -1,0 +1,30 @@
+datasets:
+  clic_val:
+    path: /path/to/clic2020_val
+    full_resolution: true
+  div2k_val:
+    path: /path/to/DIV2K_valid_HR
+    full_resolution: true
+
+evaluation:
+  use_compress_decompress: true
+  pad_to_multiple: 64
+  remove_padding_before_metric: true
+  save_bitstreams: true
+  save_reconstructions: true
+
+metrics:
+  actual_bpp: true
+  estimated_bpp: true
+  psnr_rgb: true
+  ms_ssim_rgb: true
+  lpips_alex: true
+  dists: true
+  fid: true
+  kid: true
+  dino_similarity: optional
+  clip_similarity: optional
+  runtime: true
+
+report:
+  output_dir: results/clic_div2k
