@@ -1,6 +1,8 @@
 experiment:
   name: coserdic_variable_rate
   seed: 42
+  scope: post_mvp_extension
+  status: disabled_until_core_mvp_complete
 
 model:
   load_joint_checkpoint: null

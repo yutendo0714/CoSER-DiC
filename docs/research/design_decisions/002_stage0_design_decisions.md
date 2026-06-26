@@ -64,8 +64,8 @@ Stage 3 residual:
 
 Diffusion:
 
-- prefer CoD-Lite/StableCodec initialization if checkpoint terms are compatible;
+- prefer CoD-Lite initialization if checkpoint terms are compatible;
+- keep StableCodec as a baseline/fallback reference only;
 - freeze diffusion backbone first;
 - train adapters/FiLM/conditioning;
 - keep auxiliary L1 anchor to prevent semantic drift.
-

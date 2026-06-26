@@ -10,12 +10,13 @@ artifacts stay cleanly separated.
 
 ## Current Stage
 
-Stage 0: environment, dataset inventory, reproducibility, baseline registry, and
-actual-bitstream-first evaluation scaffolding.
+Stage 0 for **Core MVP-v0**: environment, dataset inventory, reproducibility,
+baseline registry, CoD-Lite pretrained policy, and actual-bitstream-first
+evaluation scaffolding.
 
 ## Non-negotiable Research Axis
 
-CoSER-DiC must keep:
+CoSER-DiC Core MVP-v0 must keep:
 
 - entropy-constrained semantic VQ token stream
 - detail residual latent stream
@@ -23,6 +24,19 @@ CoSER-DiC must keep:
 - auxiliary reconstruction as a fidelity anchor
 - one-step or few-step compression-oriented diffusion reconstruction
 - actual entropy-coded bitstream and actual bpp reporting
+
+Core MVP-v0 deliberately excludes VLM-DPO, OCR/face losses, adaptive
+quantization, advanced variable-rate control, full autoregressive/Mamba entropy
+models, and large human studies until the MVP causal claims are established.
+
+Default pretrained policy:
+
+- `CoD_Lite_pretrain.pt` may initialize only the diffusion decoder backbone.
+- Semantic VQ, codebook, entropy models, detail residual branch, auxiliary
+  decoders, and CoSER conditioning adapters are scratch-trained.
+- RDVQ, GLC, Control-GIC, StableCodec, AEIC, OneDC, CompressAI, ResULIC, and
+  RDEIC are baselines/references unless a policy document explicitly says
+  otherwise.
 
 Forward-only estimated bpp is allowed for diagnostics, but paper-facing
 evaluation must run:
@@ -101,9 +115,16 @@ python scripts/dataset_report.py --config configs/data/paths.yaml
 ## Immediate Next Experiments
 
 1. Validate environment and metric imports.
-2. Run CompressAI classical learned-codec anchors with actual bpp.
-3. Implement Stage 1 semantic VQ tokenizer and evaluate semantic-only
+2. Verify/download CoD-Lite Core MVP assets.
+3. Run CompressAI classical learned-codec anchors with actual bpp.
+4. Implement Stage 1 semantic VQ tokenizer and evaluate semantic-only
    reconstructions.
-4. Add actual semantic token bitstream round-trip before treating any rate point
+5. Add actual semantic token bitstream round-trip before treating any rate point
    as valid.
 
+Core MVP policy and baseline registry:
+
+```bash
+python scripts/verify_mvp_assets.py
+python scripts/download_cod_lite_assets.py --dry-run --all --include-yaml
+```

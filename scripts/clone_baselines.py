@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
@@ -10,6 +11,12 @@ import yaml
 def run(cmd: list[str], cwd: Path | None = None) -> None:
     print("+", " ".join(cmd))
     subprocess.run(cmd, cwd=cwd, check=True)
+
+
+def repo_dir_name(repo_url: str) -> str:
+    path = urlparse(repo_url).path.rstrip("/")
+    name = Path(path).name
+    return name[:-4] if name.endswith(".git") else name
 
 
 def main() -> None:
@@ -36,7 +43,9 @@ def main() -> None:
         selected.append((name, item))
 
     for name, item in selected:
-        target = dest / name
+        target = Path(item.get("local_dir", dest / repo_dir_name(item["repo"])))
+        if not target.is_absolute():
+            target = Path(target)
         if target.exists():
             print(f"skip {name}: {target} already exists")
             continue
@@ -45,4 +54,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

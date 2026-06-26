@@ -1,0 +1,14 @@
+name: cod_lite_0039
+priority: A
+repo_key: cod_lite
+repo_path: external/repos/GenCodec
+subdir: CoD_Lite
+checkpoint:
+  hf_repo: zhaoyangjia/CoD_Lite
+  filename: CoD_Lite_bpp_0_0039.pt
+  path: external/pretrained/CoD_Lite/CoD_Lite_bpp_0_0039.pt
+expected_bpp: 0.0039
+usage_policy:
+  core_integration_allowed: false
+  purpose: CoD-Lite baseline and sanity check, not CoSER-DiC core.
+

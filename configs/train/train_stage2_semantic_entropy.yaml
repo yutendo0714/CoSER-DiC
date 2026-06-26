@@ -1,6 +1,8 @@
 experiment:
   name: coserdic_stage2_semantic_entropy
   seed: 42
+  scope: core_mvp_v0
+  target_bpp: [0.01, 0.03, 0.05]
 
 model:
   load_stage1_checkpoint: null

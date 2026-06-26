@@ -1,6 +1,8 @@
 experiment:
   name: coserdic_stage1_semantic_vq
   seed: 42
+  scope: core_mvp_v0
+  target_bpp: [0.01, 0.03, 0.05]
 
 model:
   semantic_encoder:
@@ -11,14 +13,23 @@ model:
     codebook_size: 8192
     embedding_dim: 256
     commitment_weight: 0.25
-    ema_update: true
+    # Core MVP Stage 1 starts with non-EMA codebook learning. Early probes showed
+    # EMA updates collapsing to 2-3 active codes before the encoder/decoder pair
+    # learned stable semantic structure; EMA can be re-enabled in a later
+    # consolidation run from a healthy warmup checkpoint.
+    ema_update: false
     temperature_init: 1.0
     temperature_final: 0.1
+    soft_st: true
+    soft_st_temperature: 1.0
   semantic_aux_decoder:
     base_channels: 128
     num_res_blocks: 4
 
 data:
+  train_roots:
+    - /dpl/race_pilot_openimages_crops
+    - /dpl/race_pilot_div2k_crops_v3
   train_crop_size: 256
   pad_to_multiple: 64
   random_flip: true
@@ -29,14 +40,18 @@ optimization:
   weight_decay: 1.0e-4
   mixed_precision: true
   ema: true
+  quantize_mix_warmup_steps: 2000
 
 loss:
   l1_sem: 1.0
   ms_ssim_sem: 0.2
   lpips_sem: 0.1
   vq_commitment: 0.25
-  codebook_usage: 0.01
+  codebook_usage: 0.05
+  vq_warmup_steps: 1000
+  usage_warmup_steps: 1000
 
 logging:
   save_codebook_usage: true
   save_visual_samples: true
+  wandb: true

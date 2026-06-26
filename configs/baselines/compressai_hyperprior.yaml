@@ -1,0 +1,16 @@
+name: compressai_hyperprior
+priority: A
+runner: scripts/eval_compressai_anchor.py
+dataset_default: /dpl/kodak
+models:
+  - bmshj2018_hyperprior
+qualities: [1, 2, 3, 4, 5, 6, 7, 8]
+evaluation:
+  actual_bpp: true
+  pad_to_multiple: 64
+  full_resolution: true
+  metrics: [psnr_rgb, ms_ssim_rgb]
+usage_policy:
+  core_integration_allowed: false
+  purpose: RD baseline and entropy-coding sanity check only.
+

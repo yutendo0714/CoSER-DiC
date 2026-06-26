@@ -28,6 +28,8 @@ external/repos/*
 !external/repos/.gitkeep
 external/pretrained/*
 !external/pretrained/.gitkeep
+!external/pretrained/*/
+!external/pretrained/*/.gitkeep
 
 data/
 tmp/

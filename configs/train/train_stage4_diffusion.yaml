@@ -1,12 +1,16 @@
 experiment:
   name: coserdic_stage4_diffusion
   seed: 42
+  scope: core_mvp_v0
+  target_bpp: [0.01, 0.03, 0.05]
 
 model:
   load_stage3_checkpoint: null
   diffusion_decoder:
     type: one_step
-    initialization: cod_lite_or_stablecodec_or_onedc
+    initialization: cod_lite_pretrain
+    pretrained_path: external/pretrained/CoD_Lite/CoD_Lite_pretrain.pt
+    fallback_backbone: disabled_for_core_mvp
     freeze_backbone_initially: true
     train_adapters: true
     conditioning:
@@ -15,6 +19,10 @@ model:
       detail_latents: true
       rate_embedding: true
       mode: film_multiscale
+    core_policy:
+      use_cod_lite_backbone_only: true
+      train_coserdic_adapter_from_scratch: true
+      do_not_use_stablecodec_as_default: true
 
 optimization:
   optimizer: adamw
@@ -35,3 +43,4 @@ validation:
   compare_x_aux_and_x_hat: true
   report_semantic_metrics: true
   save_failure_candidates: true
+  use_actual_bitstream: true

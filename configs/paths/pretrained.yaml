@@ -1,0 +1,59 @@
+root: external/pretrained
+
+cod_lite:
+  hf_repo: zhaoyangjia/CoD_Lite
+  local_dir: external/pretrained/CoD_Lite
+  diffusion_pretrain:
+    filename: CoD_Lite_pretrain.pt
+    path: external/pretrained/CoD_Lite/CoD_Lite_pretrain.pt
+    core_mvp_usage: diffusion_backbone_initialization
+  baseline_checkpoints:
+    bpp_0_0039:
+      filename: CoD_Lite_bpp_0_0039.pt
+      config_filename: CoD_Lite_bpp_0_0039.yaml
+      path: external/pretrained/CoD_Lite/CoD_Lite_bpp_0_0039.pt
+      expected_bpp: 0.0039
+    bpp_0_0078:
+      filename: CoD_Lite_bpp_0_0078.pt
+      config_filename: CoD_Lite_bpp_0_0078.yaml
+      path: external/pretrained/CoD_Lite/CoD_Lite_bpp_0_0078.pt
+      expected_bpp: 0.0078
+    bpp_0_0156:
+      filename: CoD_Lite_bpp_0_0156.pt
+      config_filename: CoD_Lite_bpp_0_0156.yaml
+      path: external/pretrained/CoD_Lite/CoD_Lite_bpp_0_0156.pt
+      expected_bpp: 0.0156
+    bpp_0_0312:
+      filename: CoD_Lite_bpp_0_0312.pt
+      config_filename: CoD_Lite_bpp_0_0312.yaml
+      path: external/pretrained/CoD_Lite/CoD_Lite_bpp_0_0312.pt
+      expected_bpp: 0.0312
+
+rdvq:
+  local_dir: external/pretrained/RDVQ
+  core_mvp_usage: baseline_only
+
+glc:
+  local_dir: external/pretrained/GLC
+  core_mvp_usage: baseline_only
+
+stablecodec:
+  local_dir: external/pretrained/StableCodec
+  core_mvp_usage: baseline_only_or_fallback_reference
+
+aeic:
+  local_dir: external/pretrained/AEIC
+  core_mvp_usage: baseline_only
+
+onedc:
+  local_dir: external/pretrained/OneDC
+  core_mvp_usage: baseline_only
+
+rdeic:
+  local_dir: external/pretrained/RDEIC
+  core_mvp_usage: baseline_only
+
+resulic:
+  local_dir: external/pretrained/ResULIC
+  core_mvp_usage: baseline_only
+

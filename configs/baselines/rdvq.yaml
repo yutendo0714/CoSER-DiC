@@ -1,0 +1,12 @@
+name: rdvq
+priority: A
+repo_key: rdvq
+repo_path: external/repos/RDVQ
+pretrained_dir: external/pretrained/RDVQ
+usage_policy:
+  core_integration_allowed: false
+  mvp_note: CoSER semantic VQ must be scratch-trained. RDVQ checkpoints are baseline/sanity only.
+evaluation:
+  actual_bpp: prefer_official_compress_decompress
+  datasets: [kodak, clic_valid, div2k]
+

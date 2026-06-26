@@ -1,0 +1,17 @@
+name: compressai_cheng2020
+priority: A
+runner: scripts/eval_compressai_anchor.py
+dataset_default: /dpl/kodak
+models:
+  - cheng2020_anchor
+  - cheng2020_attn
+qualities: [1, 2, 3, 4, 5, 6]
+evaluation:
+  actual_bpp: true
+  pad_to_multiple: 64
+  full_resolution: true
+  metrics: [psnr_rgb, ms_ssim_rgb]
+usage_policy:
+  core_integration_allowed: false
+  purpose: Strong RD learned-codec anchor.
+

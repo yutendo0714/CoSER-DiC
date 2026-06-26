@@ -1,166 +1,184 @@
+mvp_policy:
+  name: coserdic_mvp_v0_core
+  canonical_design_decision: docs/research/design_decisions/000_external_repos_and_pretrained_policy_mvp.md
+  core_rule: external repositories are tools, not the CoSER-DiC method
+  default_pretrained_initialization:
+    diffusion_backbone: cod_lite_pretrain
+    semantic_vq: scratch
+    detail_residual: scratch
+    entropy_models: scratch
+    auxiliary_decoders: scratch
+  target_bpp: [0.01, 0.03, 0.05]
+
 baselines:
-  compressai:
+  compressai_hyperprior:
     priority: A
+    mvp_role: rd_anchor
     category: rd_lic_platform
     repo: https://github.com/InterDigitalInc/CompressAI.git
     paper_or_project: https://github.com/InterDigitalInc/CompressAI
     license_hint: BSD-3-Clause-Clear
-    role: Hyperprior, joint autoregressive, Cheng2020, and classical codec evaluation anchors.
     clone: false
     install_mode: pip
     actual_bpp: true
     checkpoint_status: model_zoo
+    core_integration_allowed: false
+    notes: Baseline and entropy-coding implementation reference only.
 
-  glc:
+  compressai_cheng2020:
     priority: A
-    category: vq_generative_low_bitrate
-    repo: https://github.com/jzyustc/GLC.git
-    paper_or_project: https://github.com/jzyustc/GLC
-    license_hint: Apache-2.0
-    role: VQ-VAE latent-space generative coding; direct ultra-low bitrate baseline.
+    mvp_role: rd_anchor
+    category: rd_lic_platform
+    repo: https://github.com/InterDigitalInc/CompressAI.git
+    paper_or_project: https://github.com/InterDigitalInc/CompressAI
+    license_hint: BSD-3-Clause-Clear
+    clone: false
+    install_mode: pip
+    actual_bpp: true
+    checkpoint_status: model_zoo
+    core_integration_allowed: false
+    notes: Strong RD-oriented learned codec anchor.
+
+  cod_lite:
+    priority: A
+    mvp_role: primary_diffusion_initialization_and_baseline
+    category: compression_native_one_step_diffusion
+    repo: https://github.com/microsoft/GenCodec.git
+    subdir: CoD_Lite
+    pretrained_repo: zhaoyangjia/CoD_Lite
+    paper_or_project: https://github.com/microsoft/GenCodec
+    license_hint: MIT
     clone: true
     install_mode: external
     actual_bpp: verify
-    checkpoint_status: release_page
+    checkpoint_status: huggingface_verified
+    core_integration_allowed: diffusion_backbone_only
+    allowed_core_usage:
+      - initialize diffusion decoder backbone from CoD_Lite_pretrain.pt if feasible
+      - implement CoSER-specific conditioning adapter in src/coserdic
+    forbidden_core_usage:
+      - treating CoD-Lite rate checkpoints as CoSER-DiC final models
+      - assuming CoD-Lite natively accepts semantic/detail representations
 
   rdvq:
     priority: A
+    mvp_role: vq_baseline_and_rd_vq_reference
     category: rd_aware_vq
     repo: https://github.com/CVL-UESTC/RDVQ.git
     paper_or_project: https://arxiv.org/abs/2604.10546
     license_hint: MIT
-    role: Differentiable VQ with rate feedback to encoder/codebook; closest semantic VQ reference.
     clone: true
     install_mode: external
     actual_bpp: true
-    checkpoint_status: verify
+    checkpoint_status: huggingface_or_release_verify
+    core_integration_allowed: false
+    notes: Do not initialize CoSER semantic VQ from RDVQ during MVP-v0.
 
-  dlf:
+  glc:
     priority: A
-    category: semantic_detail_vq
-    repo: https://github.com/dlfcodec/Dual-generative-Latent-Fusion.git
-    paper_or_project: https://dlfcodec.github.io/
+    mvp_role: vq_generative_baseline
+    category: vq_generative_low_bitrate
+    repo: https://github.com/jzyustc/GLC.git
+    paper_or_project: https://github.com/jzyustc/GLC
     license_hint: Apache-2.0
-    role: Dual semantic/detail latent fusion; closest decomposition competitor.
     clone: true
     install_mode: external
     actual_bpp: verify
-    checkpoint_status: verify
-
-  resulic:
-    priority: A
-    category: residual_diffusion_low_bitrate
-    repo: https://github.com/NJUVISION/ResULIC.git
-    paper_or_project: https://github.com/NJUVISION/ResULIC
-    license_hint: BSD-3-Clause
-    role: Semantic residual coding plus compression-aware diffusion; direct competitor.
-    clone: true
-    install_mode: external
-    actual_bpp: verify
-    checkpoint_status: modelscope_links
+    checkpoint_status: release_page
+    core_integration_allowed: false
+    notes: Baseline/reference only; no default CoSER semantic VQ initialization.
 
   stablecodec:
     priority: A
+    mvp_role: one_step_diffusion_baseline_and_fallback_reference
     category: one_step_diffusion_codec
     repo: https://github.com/LuizScarlet/StableCodec.git
     paper_or_project: https://arxiv.org/abs/2506.21977
     license_hint: MIT
-    role: One-step diffusion baseline with dual-branch coding and pretrained checkpoints.
     clone: true
     install_mode: external
     actual_bpp: verify
     checkpoint_status: released
-
-  gencodec:
-    priority: A
-    category: compression_native_diffusion
-    repo: https://github.com/microsoft/GenCodec.git
-    paper_or_project: https://github.com/microsoft/GenCodec
-    license_hint: MIT
-    role: CoD and CoD-Lite; candidate diffusion decoder initialization and baseline.
-    clone: true
-    install_mode: external
-    actual_bpp: verify
-    checkpoint_status: huggingface
+    core_integration_allowed: fallback_reference_only
+    notes: Do not use as default backbone unless CoD-Lite integration fails.
 
   aeic:
-    priority: A
+    priority: B
+    mvp_role: speed_baseline
     category: real_time_extreme_diffusion
     repo: https://github.com/LuizScarlet/AEIC.git
     paper_or_project: https://github.com/LuizScarlet/AEIC
     license_hint: MIT
-    role: Shallow/moderate encoder ultra-low bitrate perceptual codec; runtime-aware comparator.
     clone: true
     install_mode: external
     actual_bpp: true_with_flag
     checkpoint_status: released
-
-  onedc:
-    priority: B
-    category: one_step_diffusion_semantic_distillation
-    repo: https://github.com/onedc-codec/onedc.git
-    paper_or_project: https://onedc-codec.github.io/
-    license_hint: CC-BY-NC-SA-4.0_plus_components
-    role: One-step diffusion with hyperprior semantic distillation; strong conceptual reference.
-    clone: true
-    install_mode: external
-    actual_bpp: verify
-    checkpoint_status: released
+    core_integration_allowed: false
 
   control_gic:
     priority: B
+    mvp_role: variable_rate_vq_baseline
     category: controllable_generative_vq
     repo: https://github.com/lianqi1008/Control-GIC.git
     paper_or_project: https://arxiv.org/abs/2406.00758
     license_hint: verify
-    role: Dynamic granularity and once-for-all variable-rate VQGAN compression.
     clone: true
     install_mode: external
     actual_bpp: verify
     checkpoint_status: released
+    core_integration_allowed: false
 
-  hpcm:
+  onedc:
     priority: B
-    category: rd_entropy_model
-    repo: https://github.com/lyq133/LIC-HPCM.git
-    paper_or_project: https://arxiv.org/abs/2507.19125
-    license_hint: MIT
-    role: Hierarchical progressive context modeling; entropy-model reference for later residual stream.
+    mvp_role: one_step_diffusion_baseline
+    category: one_step_diffusion_semantic_distillation
+    repo: https://github.com/onedc-codec/onedc.git
+    paper_or_project: https://onedc-codec.github.io/
+    license_hint: CC-BY-NC-SA-4.0_plus_components
     clone: true
     install_mode: external
-    actual_bpp: true
+    actual_bpp: verify
     checkpoint_status: released
+    core_integration_allowed: false
 
-  mambaic:
-    priority: C
-    category: state_space_rd_lic
-    repo: https://github.com/AuroraZengfh/MambaIC.git
-    paper_or_project: https://openaccess.thecvf.com/content/CVPR2025/html/Zeng_MambaIC_State_Space_Models_for_High-Performance_Learned_Image_Compression_CVPR_2025_paper.html
+  rdeic:
+    priority: B
+    mvp_role: relay_residual_diffusion_baseline
+    category: residual_diffusion_extreme_low_bitrate
+    repo: https://github.com/huai-chang/RDEIC.git
+    paper_or_project: https://github.com/huai-chang/RDEIC
     license_hint: verify
-    role: State-space architecture reference; optional for complexity/performance comparisons.
-    clone: false
+    clone: true
     install_mode: external
     actual_bpp: verify
     checkpoint_status: verify
+    core_integration_allowed: false
 
-security_and_task_references:
-  robust_nic:
-    paper_or_project: https://arxiv.org/abs/2112.08691
-    role: Adversarial perturbation analysis and defenses for neural image compression.
-  training_free_defense:
-    paper_or_project: https://arxiv.org/abs/2401.11902
-    role: Random transform two-way compression defense without retraining.
-  backdoor_dic:
-    paper_or_project: https://arxiv.org/abs/2302.14677
-    role: Adaptive DCT-frequency backdoor triggers against deep image compression.
-  psic:
-    repo: https://github.com/JiayinXu5499/PSIC.git
-    paper_or_project: https://arxiv.org/abs/2506.15201
-    role: Privacy-shielded compression against VLP/VLM exploitation.
-  lvml_codec:
-    paper_or_project: https://arxiv.org/abs/2407.17060
-    role: Downstream-aware image compression for large vision-language models.
-  s2_cot:
-    repo: https://github.com/Brock-bit4/S2-CoT.git
-    paper_or_project: https://arxiv.org/abs/2604.10017
-    role: Parameter-efficient structure/semantic co-tuning, including entropy-model adapters.
+  resulic:
+    priority: B
+    mvp_role: semantic_residual_baseline
+    category: residual_diffusion_low_bitrate
+    repo: https://github.com/NJUVISION/ResULIC.git
+    paper_or_project: https://github.com/NJUVISION/ResULIC
+    license_hint: BSD-3-Clause
+    clone: true
+    install_mode: external
+    actual_bpp: verify
+    checkpoint_status: modelscope_links
+    core_integration_allowed: false
+
+post_mvp_references:
+  dlf:
+    category: semantic_detail_vq
+    repo: https://github.com/dlfcodec/Dual-generative-Latent-Fusion.git
+    paper_or_project: https://dlfcodec.github.io/
+    reason_deferred: Not listed in Core MVP priority; keep as conceptual reference.
+  hpcm:
+    category: advanced_entropy_model
+    repo: https://github.com/lyq133/LIC-HPCM.git
+    reason_deferred: Progressive context modeling is outside MVP-v0.
+  mambaic:
+    category: state_space_rd_lic
+    repo: https://github.com/AuroraZengfh/MambaIC.git
+    reason_deferred: Mamba/SSM entropy models are explicitly post-MVP.
+

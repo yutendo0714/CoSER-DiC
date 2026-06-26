@@ -1,6 +1,8 @@
 experiment:
   name: coserdic_stage5_joint_finetune
   seed: 42
+  scope: core_mvp_v0
+  target_bpp: [0.01, 0.03, 0.05]
 
 model:
   load_stage4_checkpoint: null
@@ -39,3 +41,4 @@ validation:
   datasets: [kodak, clic_val, div2k_val]
   save_reconstructions: true
   save_failure_gallery: true
+  required_ablations: [semantic_only, no_detail, no_diffusion, no_semantic_conditioned_prior]

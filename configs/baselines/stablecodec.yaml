@@ -1,0 +1,12 @@
+name: stablecodec
+priority: A
+repo_key: stablecodec
+repo_path: external/repos/StableCodec
+pretrained_dir: external/pretrained/StableCodec
+usage_policy:
+  core_integration_allowed: fallback_reference_only
+  mvp_note: Baseline by default. Fallback decoder reference only if CoD-Lite integration fails.
+evaluation:
+  actual_bpp: verify
+  datasets: [kodak, clic_valid, div2k]
+
