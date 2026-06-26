@@ -1,6 +1,8 @@
 mvp_policy:
   name: coserdic_mvp_v0_core
   canonical_design_decision: docs/research/design_decisions/000_external_repos_and_pretrained_policy_mvp.md
+  implementation_reference_policy: docs/research/design_decisions/003_official_implementation_reference_policy.md
+  official_reference_map: configs/baselines/official_reference_map.yaml
   core_rule: external repositories are tools, not the CoSER-DiC method
   default_pretrained_initialization:
     diffusion_backbone: cod_lite_pretrain
@@ -181,4 +183,3 @@ post_mvp_references:
     category: state_space_rd_lic
     repo: https://github.com/AuroraZengfh/MambaIC.git
     reason_deferred: Mamba/SSM entropy models are explicitly post-MVP.
-

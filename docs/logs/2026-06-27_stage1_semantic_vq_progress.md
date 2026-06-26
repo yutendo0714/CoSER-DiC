@@ -549,3 +549,156 @@ Recipe:
    VQ weight 0.10, code usage weight 0.01, lr 5e-5.
 4. Evaluate reconstruction and actual transmitted CoSERBitstream bpp.
 ```
+
+## Official Implementation Reference Policy
+
+Decision:
+
+```text
+CoSER-DiC should not become a direct fork or assembly of official baselines.
+It remains a new codec under src/coserdic. Official implementations are used
+as baselines, sanity checks, design references, and tightly scoped
+initialization sources only.
+```
+
+Added policy files:
+
+```text
+docs/research/design_decisions/003_official_implementation_reference_policy.md
+configs/baselines/official_reference_map.yaml
+```
+
+Stage 2 implication:
+
+```text
+The semantic-token entropy model should be implemented as a CoSER-specific
+module. RDVQ's conditional token prior and top-k/escape tensor-rANS path are
+the strongest L2 implementation references, but the CoSER model must preserve
+the Core MVP stream separation:
+
+semantic VQ tokens -> semantic entropy
+detail residual latents -> semantic-conditioned residual entropy
+auxiliary reconstruction -> one/few-step diffusion refinement
+actual compress/decompress bytes -> official bpp
+```
+
+## 5k Low-VQ Hard-VQ Extension
+
+Motivation:
+
+```text
+The 3k low-VQ probe became the new baseline. I then tested whether the same
+simple recipe benefits from longer hard-VQ fine-tuning or whether it was mainly
+an early-stopping sweet spot.
+```
+
+Run:
+
+```text
+20260627_stage1_semantic_vq_fullshape_5k_hardvq_from_5k_ae_codeinit_vq010_usage001_l1only
+```
+
+Checkpoint:
+
+```text
+checkpoints/stage1_semantic_vq/20260627_stage1_semantic_vq_fullshape_5k_hardvq_from_5k_ae_codeinit_vq010_usage001_l1only.pt
+```
+
+Recipe:
+
+```text
+1. Start from the 5k pure continuous AE checkpoint.
+2. Reinitialize the codebook from encoder latents.
+3. Hard-VQ fine-tune for 5k steps with:
+   quantize_mix=1, VQ weight=0.10, usage weight=0.01, lr=5e-5.
+4. Keep MS-SSIM and LPIPS training losses disabled.
+```
+
+Note on LPIPS:
+
+```text
+An attempted 5k run inherited lpips_sem=0.1 from the YAML config and failed at
+step 1 with a non-finite gradient. The Stage 1 config now defaults LPIPS to 0.0.
+LPIPS remains an explicit ablation option, but not part of the stable Core MVP
+semantic-token baseline.
+```
+
+Kodak hard-VQ analysis:
+
+```text
+20260627_stage1_semantic_vq_5k_hardvq_from_5k_ae_codeinit_vq010_usage001_l1only_kodak_analysis
+
+mean_psnr_sem: 20.74 dB
+mean_l1_sem: 0.0651
+mean_ms_ssim_sem: 0.6758
+active_codes_global: 1064 / 8192
+global_code_entropy_bits: 9.83 bits/token
+global_code_perplexity: 910.55
+mean_per_image_used_codes: 57.17 / 64 tokens
+mean_vq_mse: 0.527
+latent_std: 1.91
+quantized_std: 1.80
+```
+
+Comparison to the 3k low-VQ baseline:
+
+```text
+Kodak PSNR: 20.37 -> 20.74 dB
+Kodak L1: 0.0696 -> 0.0651
+Kodak MS-SSIM: 0.6634 -> 0.6758
+active codes: 1022 -> 1064
+global code entropy: 9.74 -> 9.83 bits/token
+global code perplexity: 856.32 -> 910.55
+mean per-image used codes: 56.13 -> 57.17
+mean VQ MSE: 0.532 -> 0.527
+```
+
+Actual bitstream evaluation:
+
+```text
+20260627_stage1_semantic_vq_5k_hardvq_vq010_usage001_l1only_kodak_actual_bitstream_eval
+
+fixed_bits payload:
+  token payload bytes/image: 104
+  token payload bpp: 0.01270
+  full CoSERBitstream bytes/image: 609
+  full actual transmitted bpp: 0.07434
+  token roundtrip: true
+
+quality through actual encode/decode:
+  PSNR: 20.7363 dB
+  L1: 0.06508
+  MS-SSIM: 0.67577
+```
+
+Interpretation:
+
+```text
+The 5k low-VQ extension is now the best Stage 1 semantic-token checkpoint.
+It improves quality over both the 5k high-VQ baseline and the 3k low-VQ probe
+without changing deterministic fixed_bits payload bpp.
+
+The result strengthens the current Stage 1 recipe:
+continuous AE warm start -> encoder-latent codebook init -> low-pressure
+hard-VQ fine-tuning. The next Stage 1 probe should test whether a longer
+10k-20k low-pressure run keeps improving or saturates, but that is a longer
+training job and should be scheduled explicitly.
+```
+
+## Current Stage 1 Baseline Update 2
+
+Use:
+
+```text
+checkpoints/stage1_semantic_vq/20260627_stage1_semantic_vq_fullshape_5k_hardvq_from_5k_ae_codeinit_vq010_usage001_l1only.pt
+```
+
+Recipe:
+
+```text
+1. Train pure continuous AE with quantize_mix=0, L1 only, no VQ pressure.
+2. Reinitialize codebook from encoder latents sampled over the train loader.
+3. Fine-tune hard VQ with quantize_mix=1, non-EMA, unnormalized latent,
+   VQ weight 0.10, code usage weight 0.01, lr 5e-5.
+4. Evaluate reconstruction and actual transmitted CoSERBitstream bpp.
+```
