@@ -13,12 +13,20 @@ model:
     active_token_prior_checkpoint: checkpoints/stage2_token_prior/20260627_stage2_token_prior_tf256_l4_8kstep_32768tokens_lr1e4_do02_es.pt
     active_prior: outputs/stage2_learned_entropy/20260627_stage2_learned_topk512_escape_huffman_fit_32768tokens_8kprior/learned_topk_escape_huffman_prior.json
     active_stream_header_codec: compact
+    active_stream_header_format: compact_v3_varint_string_table
     active_stream_checksum_codec: crc32
     active_codec_version_id: s2lte0
     kodak_payload_bpp: 0.010722
-    kodak_full_stream_bpp: 0.021830
+    kodak_full_stream_bpp: 0.015483
+    div2k100_payload_bpp: 0.010425
+    div2k100_full_stream_bpp: 0.015186
+    clicval41_payload_bpp: 0.009906
+    clicval41_full_stream_bpp: 0.014666
+    clicval64_payload_bpp: 0.010050
+    clicval64_full_stream_bpp: 0.014811
     kodak_fixed_bits_payload_bpp: 0.012695
-    kodak_fixed_bits_full_stream_bpp: 0.023682
+    kodak_fixed_bits_full_stream_bpp: 0.017456
+    previous_compact_v2_crc32_shortid_full_stream_bpp: 0.021830
     previous_compact_crc32_longid_full_stream_bpp: 0.024760
     previous_compact_sha256_full_stream_bpp: 0.028178
     static_ablation_prior: outputs/stage2_semantic_entropy/20260627_stage2_leftctx_huffman_top64_b4096_4096calib_oi_div2k_from_stage1_best/static_left_context_huffman_prior.json

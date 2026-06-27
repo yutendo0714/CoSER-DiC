@@ -11,9 +11,11 @@ Read in this order:
 5. `design_decisions/005_stage2_static_huffman_token_prior.md`
 6. `design_decisions/006_stage2_learned_token_prior_probe.md`
 7. `design_decisions/007_stage3_uniform_residual_bootstrap.md`
-8. `core_mvp_literature_update_2026-06-27.md`
-9. `baseline_registry.md`
-10. `baselines/external_repo_status_mvp.md`
+8. `design_decisions/008_compact_v3_actual_bitstream_container.md`
+9. `design_decisions/009_stage3_semantic_conditioned_residual_huffman.md`
+10. `core_mvp_literature_update_2026-06-27.md`
+11. `baseline_registry.md`
+12. `baselines/external_repo_status_mvp.md`
 
 Broad literature notes that are not part of the active Core MVP execution path
 live in `archive/`.

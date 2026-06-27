@@ -16,7 +16,12 @@ from torchvision.transforms import functional as TF
 from tqdm import tqdm
 
 from coserdic.datasets.image_folder import IMAGE_SUFFIXES
-from coserdic.entropy import StaticResidualGridHuffmanCode, StaticResidualGridPositionHuffmanCode, UniformResidualGridCode
+from coserdic.entropy import (
+    StaticResidualGridHuffmanCode,
+    StaticResidualGridPositionHuffmanCode,
+    StaticResidualGridSemanticPositionHuffmanCode,
+    UniformResidualGridCode,
+)
 from coserdic.models import SemanticVQAutoEncoder, SemanticVQConfig
 from coserdic.utils import seed_everything
 
@@ -95,6 +100,35 @@ def write_run_doc(path: Path, payload: dict) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
+def codebook_kmeans_groups(
+    model: SemanticVQAutoEncoder,
+    cfg: SemanticVQConfig,
+    *,
+    group_count: int,
+    iterations: int,
+    seed: int,
+) -> list[int]:
+    if group_count <= 0:
+        raise ValueError("group_count must be positive")
+    embeddings = model.vq.embedding.weight.detach().float().cpu()
+    if cfg.normalize_latent:
+        embeddings = F.normalize(embeddings, dim=1)
+    if group_count > embeddings.shape[0]:
+        raise ValueError("group_count must not exceed codebook size")
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    init = torch.randperm(embeddings.shape[0], generator=generator)[:group_count]
+    centers = embeddings.index_select(0, init).clone()
+    assignments = torch.zeros(embeddings.shape[0], dtype=torch.long)
+    for _ in range(max(int(iterations), 1)):
+        distances = torch.cdist(embeddings, centers)
+        assignments = torch.argmin(distances, dim=1)
+        for group in range(group_count):
+            mask = assignments == group
+            if bool(mask.any()):
+                centers[group] = embeddings[mask].mean(dim=0)
+    return [int(v) for v in assignments.tolist()]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)
@@ -109,8 +143,14 @@ def main() -> None:
     parser.add_argument("--detail-downsample-factor", type=int, default=32)
     parser.add_argument("--detail-bits", type=int, default=4)
     parser.add_argument("--detail-range", type=float, default=0.25)
-    parser.add_argument("--coding-mode", choices=["global_huffman", "position_huffman"], default="global_huffman")
+    parser.add_argument(
+        "--coding-mode",
+        choices=["global_huffman", "position_huffman", "semantic_position_huffman"],
+        default="global_huffman",
+    )
     parser.add_argument("--smoothing-count", type=int, default=1)
+    parser.add_argument("--semantic-group-count", type=int, default=8)
+    parser.add_argument("--semantic-group-iters", type=int, default=25)
     parser.add_argument("--wandb-mode", default="offline")
     args = parser.parse_args()
 
@@ -139,6 +179,27 @@ def main() -> None:
     quantizer = UniformResidualGridCode(bits=args.detail_bits, value_range=args.detail_range, codec="fixed_bits")
     counts = torch.zeros(quantizer.levels, dtype=torch.long)
     position_counts = torch.zeros(3, detail_hw, detail_hw, quantizer.levels, dtype=torch.long)
+    semantic_position_counts = torch.zeros(
+        3,
+        detail_hw,
+        detail_hw,
+        int(args.semantic_group_count),
+        quantizer.levels,
+        dtype=torch.long,
+    )
+    token_to_group: list[int] | None = None
+    if args.coding_mode == "semantic_position_huffman":
+        token_to_group = codebook_kmeans_groups(
+            model,
+            cfg,
+            group_count=int(args.semantic_group_count),
+            iterations=int(args.semantic_group_iters),
+            seed=int(raw.get("experiment", {}).get("seed", 42)),
+        )
+        group_lookup = torch.tensor(token_to_group, dtype=torch.long)
+    else:
+        group_lookup = torch.empty(0, dtype=torch.long)
+    semantic_shape: tuple[int, int] | None = None
     total_symbols = 0
     residual_abs_sum = 0.0
     residual_sq_sum = 0.0
@@ -162,12 +223,44 @@ def main() -> None:
                                 codes[:, channel, y, x_pos].reshape(-1),
                                 minlength=quantizer.levels,
                             )
+            elif args.coding_mode == "semantic_position_huffman":
+                current_semantic_shape = (int(indices_batch.shape[-2]), int(indices_batch.shape[-1]))
+                if semantic_shape is None:
+                    semantic_shape = current_semantic_shape
+                elif current_semantic_shape != semantic_shape:
+                    raise ValueError("all semantic token grids must have the same shape")
+                token_groups = group_lookup[indices_batch.detach().cpu().to(torch.long)]
+                for channel in range(3):
+                    for y in range(detail_hw):
+                        semantic_y = min(current_semantic_shape[0] - 1, y * current_semantic_shape[0] // detail_hw)
+                        for x_pos in range(detail_hw):
+                            semantic_x = min(current_semantic_shape[1] - 1, x_pos * current_semantic_shape[1] // detail_hw)
+                            groups = token_groups[:, semantic_y, semantic_x]
+                            symbols = codes[:, channel, y, x_pos]
+                            for group in range(int(args.semantic_group_count)):
+                                mask = groups == group
+                                if bool(mask.any()):
+                                    semantic_position_counts[channel, y, x_pos, group] += torch.bincount(
+                                        symbols[mask].reshape(-1),
+                                        minlength=quantizer.levels,
+                                    )
             total_symbols += int(codes.numel())
             residual_abs_sum += float(torch.sum(torch.abs(residual_grid)).item())
             residual_sq_sum += float(torch.sum(residual_grid.float().pow(2)).item())
             clipped_symbols += int(torch.count_nonzero(torch.abs(residual_grid) >= float(args.detail_range)).item())
 
-    if args.coding_mode == "position_huffman":
+    if args.coding_mode == "semantic_position_huffman":
+        if token_to_group is None or semantic_shape is None:
+            raise RuntimeError("semantic-conditioned residual prior did not collect semantic context")
+        prior = StaticResidualGridSemanticPositionHuffmanCode.from_counts(
+            semantic_position_counts,
+            bits=args.detail_bits,
+            value_range=args.detail_range,
+            semantic_shape=semantic_shape,
+            token_to_group=token_to_group,
+            smoothing_count=args.smoothing_count,
+        )
+    elif args.coding_mode == "position_huffman":
         prior = StaticResidualGridPositionHuffmanCode.from_counts(
             position_counts,
             bits=args.detail_bits,
@@ -185,7 +278,23 @@ def main() -> None:
     probs = counts.float() / counts.sum().clamp_min(1)
     nonzero = probs[probs > 0]
     entropy_bits = float((-(nonzero * torch.log2(nonzero))).sum().item())
-    if isinstance(prior, StaticResidualGridPositionHuffmanCode):
+    if isinstance(prior, StaticResidualGridSemanticPositionHuffmanCode):
+        mean_code_length = 0.0
+        for channel in range(3):
+            for y in range(detail_hw):
+                for x_pos in range(detail_hw):
+                    for group in range(int(args.semantic_group_count)):
+                        position = (((channel * detail_hw + y) * detail_hw + x_pos) * int(args.semantic_group_count)) + group
+                        codebook = prior.position_group_codes[position]
+                        mean_code_length += sum(
+                            int(c) * int(l)
+                            for c, l in zip(
+                                semantic_position_counts[channel, y, x_pos, group].tolist(),
+                                codebook.code_lengths,
+                            )
+                        )
+        mean_code_length = float(mean_code_length / max(total_symbols, 1))
+    elif isinstance(prior, StaticResidualGridPositionHuffmanCode):
         mean_code_length = 0.0
         for channel in range(3):
             for y in range(detail_hw):
@@ -208,7 +317,9 @@ def main() -> None:
     )
     out_dir = Path(args.output_dir) / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    if args.coding_mode == "position_huffman":
+    if args.coding_mode == "semantic_position_huffman":
+        prior_path = out_dir / "static_residual_grid_semantic_position_huffman_prior.json"
+    elif args.coding_mode == "position_huffman":
         prior_path = out_dir / "static_residual_grid_position_huffman_prior.json"
     else:
         prior_path = out_dir / "static_residual_grid_huffman_prior.json"
@@ -233,6 +344,16 @@ def main() -> None:
             for y in range(detail_hw)
             for x_pos in range(detail_hw)
         ]
+    elif args.coding_mode == "semantic_position_huffman":
+        prior_payload["semantic_group_method"] = "codebook_kmeans"
+        prior_payload["semantic_group_iters"] = int(args.semantic_group_iters)
+        prior_payload["semantic_position_counts"] = [
+            [int(v) for v in semantic_position_counts[channel, y, x_pos, group].tolist()]
+            for channel in range(3)
+            for y in range(detail_hw)
+            for x_pos in range(detail_hw)
+            for group in range(int(args.semantic_group_count))
+        ]
     prior_path.write_text(json.dumps(prior_payload, indent=2, allow_nan=False))
 
     summary = {
@@ -246,6 +367,7 @@ def main() -> None:
         "detail_range": float(args.detail_range),
         "coding_mode": args.coding_mode,
         "smoothing_count": int(args.smoothing_count),
+        "semantic_group_count": int(args.semantic_group_count) if args.coding_mode == "semantic_position_huffman" else 0,
         "total_symbols": int(total_symbols),
         "counts": [int(v) for v in counts.tolist()],
         "symbol_probs": [float(v) for v in probs.tolist()],

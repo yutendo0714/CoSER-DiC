@@ -22,7 +22,9 @@ from coserdic.entropy import (
     CoSERBitstream,
     CoSERHeader,
     StaticResidualGridHuffmanCode,
+    StaticResidualGridHybridHuffmanCode,
     StaticResidualGridPositionHuffmanCode,
+    StaticResidualGridSemanticPositionHuffmanCode,
     TopKEscapeHuffmanCode,
     UniformResidualGridCode,
 )
@@ -163,9 +165,51 @@ def write_run_doc(path: Path, payload: dict) -> None:
 
 
 def summarize_residual_code(
-    residual_code: UniformResidualGridCode | StaticResidualGridHuffmanCode | StaticResidualGridPositionHuffmanCode,
+    residual_code: (
+        UniformResidualGridCode
+        | StaticResidualGridHuffmanCode
+        | StaticResidualGridHybridHuffmanCode
+        | StaticResidualGridPositionHuffmanCode
+        | StaticResidualGridSemanticPositionHuffmanCode
+    ),
 ) -> dict[str, object]:
+    if isinstance(residual_code, StaticResidualGridHybridHuffmanCode):
+        return {
+            "codec": "static_residual_grid_hybrid_huffman",
+            "version": 0,
+            "bits": int(residual_code.bits),
+            "value_range": float(residual_code.value_range),
+            "payload_codec": "hybrid_huffman",
+            "position_code": summarize_residual_code(residual_code.position_code),
+            "semantic_position_code": summarize_residual_code(residual_code.semantic_position_code),
+        }
     payload = residual_code.to_dict()
+    if payload.get("codec") == "static_residual_grid_semantic_position_huffman":
+        lengths = [
+            int(length)
+            for position_lengths in payload.get("position_group_code_lengths", [])
+            for length in position_lengths
+        ]
+        summary: dict[str, object] = {
+            "codec": payload["codec"],
+            "version": payload["version"],
+            "bits": payload["bits"],
+            "value_range": payload["value_range"],
+            "payload_codec": payload["payload_codec"],
+            "detail_shape": payload["detail_shape"],
+            "semantic_shape": payload["semantic_shape"],
+            "group_count": payload["group_count"],
+            "num_position_group_codes": len(payload.get("position_group_code_lengths", [])),
+        }
+        if lengths:
+            summary.update(
+                {
+                    "min_code_length": min(lengths),
+                    "max_code_length": max(lengths),
+                    "mean_code_length_unweighted": float(sum(lengths) / len(lengths)),
+                }
+            )
+        return summary
     if payload.get("codec") != "static_residual_grid_position_huffman":
         return payload
 
@@ -211,7 +255,14 @@ def main() -> None:
     parser.add_argument("--detail-range", type=float, default=0.5)
     parser.add_argument(
         "--detail-codec",
-        choices=["fixed_bits", "zlib_fixed_bits", "huffman", "position_huffman"],
+        choices=[
+            "fixed_bits",
+            "zlib_fixed_bits",
+            "huffman",
+            "position_huffman",
+            "semantic_position_huffman",
+            "hybrid_huffman",
+        ],
         default="zlib_fixed_bits",
     )
     parser.add_argument("--detail-prior", default="")
@@ -242,11 +293,15 @@ def main() -> None:
     if not token_prior_value:
         raise ValueError("pass --token-prior-checkpoint or store token_prior_checkpoint in semantic prior")
     token_prior = load_token_prior(Path(token_prior_value), device)
-    if args.detail_codec in {"huffman", "position_huffman"}:
+    if args.detail_codec in {"huffman", "position_huffman", "semantic_position_huffman", "hybrid_huffman"}:
         if not args.detail_prior:
             raise ValueError("--detail-prior is required when --detail-codec uses static Huffman")
         residual_prior_payload = json.loads(Path(args.detail_prior).read_text())
-        if args.detail_codec == "position_huffman":
+        if args.detail_codec == "hybrid_huffman":
+            residual_code = StaticResidualGridHybridHuffmanCode.from_dict(residual_prior_payload)
+        elif args.detail_codec == "semantic_position_huffman":
+            residual_code = StaticResidualGridSemanticPositionHuffmanCode.from_dict(residual_prior_payload)
+        elif args.detail_codec == "position_huffman":
             residual_code = StaticResidualGridPositionHuffmanCode.from_dict(residual_prior_payload)
         else:
             residual_code = StaticResidualGridHuffmanCode.from_dict(residual_prior_payload)
@@ -302,6 +357,8 @@ def main() -> None:
         "residual_grid_clip_ratio": [],
         "detail_code_entropy_bits": [],
     }
+    if isinstance(residual_code, StaticResidualGridHybridHuffmanCode):
+        metrics["detail_hybrid_semantic_mode"] = []
 
     entropy_model_version = (
         f"s3urg-d{args.detail_downsample_factor}-b{args.detail_bits}-r{int(round(args.detail_range * 100)):03d}"
@@ -335,8 +392,23 @@ def main() -> None:
                 detail_probs = detail_hist / detail_hist.sum().clamp_min(1.0)
                 detail_nonzero = detail_probs[detail_probs > 0]
                 detail_entropy_bits = float((-(detail_nonzero * torch.log2(detail_nonzero))).sum().item())
-                detail_payload = residual_code.encode(detail_codes)
-                decoded_detail_codes = residual_code.decode(detail_payload, shape=tuple(detail_codes.shape))
+                if isinstance(residual_code, StaticResidualGridHybridHuffmanCode):
+                    metrics["detail_hybrid_semantic_mode"].append(
+                        float(residual_code.select_mode(detail_codes, semantic_indices=decoded_indices))
+                    )
+                if isinstance(
+                    residual_code,
+                    (StaticResidualGridSemanticPositionHuffmanCode, StaticResidualGridHybridHuffmanCode),
+                ):
+                    detail_payload = residual_code.encode(detail_codes, semantic_indices=decoded_indices)
+                    decoded_detail_codes = residual_code.decode(
+                        detail_payload,
+                        shape=tuple(detail_codes.shape),
+                        semantic_indices=decoded_indices,
+                    )
+                else:
+                    detail_payload = residual_code.encode(detail_codes)
+                    decoded_detail_codes = residual_code.decode(detail_payload, shape=tuple(detail_codes.shape))
                 detail_roundtrip = bool(torch.equal(decoded_detail_codes, detail_codes))
                 residual_grid_hat = residual_code.dequantize(decoded_detail_codes).unsqueeze(0).to(device=device, dtype=x_sem.dtype)
                 residual_hat = F.interpolate(
@@ -376,18 +448,37 @@ def main() -> None:
                     detail_latents=detail_payload,
                 )
                 unpacked = coder.unpack(stage3_stream)
-                decoded_detail_from_stream = residual_code.decode(
-                    unpacked.detail_latents,
-                    shape=tuple(unpacked.header.detail_shape),
+                decoded_semantic_from_stream = decode_semantic_payload(
+                    semantic_code,
+                    token_prior,
+                    unpacked.semantic_tokens,
+                    shape=tuple(unpacked.header.semantic_shape),
+                    device=device,
                 )
+                if isinstance(
+                    residual_code,
+                    (StaticResidualGridSemanticPositionHuffmanCode, StaticResidualGridHybridHuffmanCode),
+                ):
+                    decoded_detail_from_stream = residual_code.decode(
+                        unpacked.detail_latents,
+                        shape=tuple(unpacked.header.detail_shape),
+                        semantic_indices=decoded_semantic_from_stream,
+                    )
+                else:
+                    decoded_detail_from_stream = residual_code.decode(
+                        unpacked.detail_latents,
+                        shape=tuple(unpacked.header.detail_shape),
+                    )
                 stream_detail_roundtrip = bool(torch.equal(decoded_detail_from_stream, detail_codes))
+                stream_semantic_roundtrip = bool(torch.equal(decoded_semantic_from_stream, indices))
 
-                if not (token_roundtrip and detail_roundtrip and stream_detail_roundtrip):
+                if not (token_roundtrip and detail_roundtrip and stream_detail_roundtrip and stream_semantic_roundtrip):
                     roundtrip_failures.append(
                         {
                             "index": int(global_index),
                             "path": str(dataset.paths[global_index]) if global_index < len(dataset.paths) else "",
                             "semantic_token_roundtrip": token_roundtrip,
+                            "stream_semantic_roundtrip": stream_semantic_roundtrip,
                             "detail_code_roundtrip": detail_roundtrip,
                             "stream_detail_roundtrip": stream_detail_roundtrip,
                         }
@@ -410,7 +501,7 @@ def main() -> None:
                 metrics["stage3_l1"].append(float(torch.mean(torch.abs(x_hat - x_i)).item()))
                 metrics["stage3_ms_ssim"].append(float(ms_ssim(x_hat, x_i, data_range=1.0, size_average=True).item()))
                 metrics["semantic_topk_hit_rate"].append(float(semantic_stats["topk_hit_rate"]))
-                metrics["semantic_token_roundtrip"].append(float(token_roundtrip))
+                metrics["semantic_token_roundtrip"].append(float(token_roundtrip and stream_semantic_roundtrip))
                 metrics["detail_code_roundtrip"].append(float(detail_roundtrip and stream_detail_roundtrip))
                 metrics["residual_grid_abs_mean"].append(float(torch.mean(torch.abs(residual_grid)).item()))
                 metrics["residual_grid_std"].append(float(torch.std(residual_grid.float(), unbiased=False).item()))

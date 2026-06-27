@@ -458,7 +458,7 @@ This is another container-only change: payloads, decoded images, quality, and
 roundtrip behavior are unchanged.
 
 ```text
-active d32 b5 r0.25 position Huffman, compact CRC32 + short ID:
+historical compact-v2 d32 b5 r0.25 position Huffman, CRC32 + short ID:
   Kodak:
     run: 20260627_stage3_residual_poshuff_d32_b5_r025_4096calib_kodak_eval_compacthdr_crc32_shortid
     wandb: wandb/offline-run-20260627_125830-wke3i8sf
@@ -478,7 +478,7 @@ active d32 b5 r0.25 position Huffman, compact CRC32 + short ID:
     full_stream_bpp: 0.030202
     PSNR delta: +0.7170 dB
 
-low-rate d32 b4 r0.25 position Huffman, compact CRC32 + short ID:
+historical compact-v2 low-rate d32 b4 r0.25 position Huffman, CRC32 + short ID:
   Kodak:
     run: 20260627_stage3_residual_poshuff_d32_b4_r025_4096calib_kodak_eval_compacthdr_crc32_shortid
     wandb: wandb/offline-run-20260627_125856-19zqaznl
@@ -503,19 +503,20 @@ roundtrip_failure_count: 0 for all six short-ID compact CRC32 runs
 
 ## Decision
 
-Use `d32 b5 r0.25 static residual position Huffman` as the active Stage 3
-quality bootstrap, and keep `d32 b4 r0.25 static residual position Huffman` as the low-rate
-anchor:
+Use `d32 b5 r0.25 hybrid position/semantic-position g4 Huffman` with
+`smoothing_count=0` as the active Stage 3 quality bootstrap, and use
+`d32 b4 r0.25 hybrid position/semantic-position g8 Huffman` with
+`smoothing_count=0` as the low-rate anchor:
 
 ```text
 semantic payload bpp is about 0.0107 on Kodak
-active detail payload bpp is about 0.00825 on Kodak
-active total semantic+detail payload bpp is about 0.01897 on Kodak
-active compact CRC32 short-ID full stream bpp is about 0.03130 on Kodak
+active detail payload bpp is about 0.00815 on Kodak
+active total semantic+detail payload bpp is about 0.01888 on Kodak
+active compact-v3 CRC32 full stream bpp is about 0.02390 on Kodak
 active quality improves by about +0.40 dB PSNR and +0.00576 MS-SSIM
-low-rate anchor detail payload bpp is about 0.00548 on Kodak
-low-rate anchor total semantic+detail payload bpp is about 0.0162 on Kodak
-low-rate anchor compact CRC32 short-ID full stream bpp is about 0.02853 on Kodak
+low-rate anchor detail payload bpp is about 0.00540 on Kodak
+low-rate anchor total semantic+detail payload bpp is about 0.01612 on Kodak
+low-rate anchor compact-v3 CRC32 full stream bpp is about 0.02113 on Kodak
 residual grid clipping is 0.0 for both active and low-rate anchor settings
 ```
 
@@ -525,16 +526,41 @@ Reason:
 The b5/r0.25 setting improves PSNR, L1, and MS-SSIM on Kodak, DIV2K, and CLIC
 with exact semantic/detail roundtrip while staying below 0.02 total payload
 bpp. Position Huffman preserves the same decoded residual grid as global
-Huffman and gives a small but consistent actual-bpp reduction. The b4/r0.25
-setting remains the cleaner low-rate anchor for learned residual entropy coding.
-The compact CoSERBitstream header replaces the earlier JSON-header evaluation
-for active full-stream bpp. CRC32 plus short codec IDs are the active compact
-container settings for low-bitrate crop experiments; payload bpp is unchanged.
+Huffman and gives a small but consistent actual-bpp reduction. Decision 009
+then supersedes both the pure b4 low-rate anchor and the pure b5 quality anchor
+with a hybrid position/semantic-position Huffman selector that transmits its
+mode bit and improves actual bpp on Kodak, DIV2K, and CLIC without changing
+reconstruction. The active b4 low-rate anchor uses g8 with smoothing=0; the
+active b5 quality anchor uses g4 with smoothing=0 after g4/g8/smoothing
+actual-byte comparisons.
+The compact CoSERBitstream header replaces the earlier
+JSON-header evaluation for active full-stream bpp. Compact v3 CRC32 is the
+active compact container for low-bitrate crop experiments.
 ```
 
 Rejected as active bootstrap:
 
 ```text
+pure semantic-position residual Huffman d32 b4 r0.25 g4:
+  improves actual compact-v3 full-stream bpp on DIV2K100 and CLIC, but regresses
+  Kodak by +0.000015 bpp versus the d32/b4/r0.25 position-Huffman anchor. It is
+  superseded by the hybrid selector in Decision 009.
+
+d32 b5 r0.25 position Huffman:
+  same reconstruction as the active b5 hybrid selector, but slightly higher
+  actual compact-v3 CRC32 full-stream bpp on Kodak, DIV2K100, CLIC professional
+  valid 41, and CLIC professional+mobile valid 64.
+
+d32 b5 r0.25 hybrid position/semantic-position g8:
+  slightly better than b5 g4 on DIV2K100 by 0.000010 bpp, but worse on Kodak,
+  CLIC professional valid 41, and CLIC professional+mobile valid 64. The
+  four-dataset mean favors g4 smoothing=1 by about 0.000002 bpp, and favors
+  g4 smoothing=0 by a larger margin.
+
+d32 b5 r0.25 hybrid position/semantic-position g4 smoothing=1:
+  improves over b5 g8 on Kodak and CLIC, but is superseded by the same g4
+  grouping with smoothing=0.
+
 learned residual AE d32 c3 b5 r0.25, no-rate 2500step:
   functional semantic/detail bitstream and positive quality delta, but detail
   payload rises to 0.01465 bpp and total payload to 0.02537 bpp on Kodak while
@@ -576,15 +602,23 @@ d16 b4 r0.25:
 ## Next Actions
 
 ```text
-1. Keep d32 b5 r0.25 static residual position Huffman as the active quality
-   bootstrap and d32 b4 r0.25 static residual position Huffman as the low-rate
+1. Keep d32 b5 r0.25 hybrid position/semantic-position g4 Huffman with
+   smoothing=0 as the active quality bootstrap and d32 b4 r0.25 hybrid
+   position/semantic-position g8 Huffman with smoothing=0 as the low-rate
    anchor.
-2. Rework the learned residual AE around an explicit entropy objective or a
-   teacher-distilled residual target before giving it longer training.
+2. Rework the learned residual AE around an explicit entropy objective,
+   teacher-distilled residual target, or spatially adaptive residual allocation
+   before giving it longer training.
 3. Replace fixed residual coding only after the learned detail path beats the
-   static-Huffman anchors under actual CoSERBitstream bytes.
-4. Extend residual-grid diagnostics beyond clipping/code entropy to per-channel
-   histograms and spatial energy maps.
+   hybrid-Huffman anchors under actual CoSERBitstream bytes.
+4. Use the cross-dataset residual diagnostics: range 0.25 is not clipping on
+   Kodak, DIV2K, or CLIC, so prioritize conditional entropy/detail allocation
+   over range expansion.
 5. Continue to evaluate only with actual CoSERBitstream bytes and exact
    semantic/detail roundtrip.
+6. Use Decision 008 compact v3 CRC32 numbers for current full-stream bpp; the
+   older compact-v2 short-ID section is retained as history.
+7. Use Decision 009 for the semantic-conditioned residual Huffman follow-up:
+   pure g4 is superseded, while the transmitted-mode hybrid selector is the
+   active b4 low-rate and b5 quality anchor.
 ```

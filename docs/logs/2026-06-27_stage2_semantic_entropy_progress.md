@@ -378,3 +378,52 @@ than top256. Keep runtime in mind before locking the final paper-facing codec;
 the next backend target is RDVQ-style tensor-rANS using the same decoder-known
 top-k/escape events.
 ```
+
+## Compact v3 Container Recheck
+
+The compact header was tightened again after the CRC32 + short-ID pass. Version
+3 keeps the same public `CoSERBitstream(header_codec="compact",
+checksum_codec="crc32")` path but writes varint dimensions/lengths and table
+IDs for common codec/model strings. This changes only container overhead; the
+semantic payload, decoded tokens, and reconstruction remain unchanged.
+
+Actual compress/decompress semantic-only results:
+
+```text
+Kodak 24:
+  run: 20260627_stage2_learned_topk512_escape_huffman_32768tokens_8kprior_kodak_eval_decodersched_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_130859-k3q9zxxr
+  payload_bpp: 0.010721842447916666
+  full_stream_bpp: 0.015482584635416666
+  previous compact-v2 CRC32 short-ID full_stream_bpp: 0.021830240885416668
+  roundtrip_failure_count: 0
+
+DIV2K first 100:
+  run: 20260627_stage2_learned_topk512_escape_huffman_32768tokens_8kprior_div2k100_eval_decodersched_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_130938-fro0s4q0
+  payload_bpp: 0.0104248046875
+  full_stream_bpp: 0.015185546875
+  roundtrip_failure_count: 0
+
+CLIC professional valid, 41 usable crops:
+  run: 20260627_stage2_learned_topk512_escape_huffman_32768tokens_8kprior_clicproval64_eval_decodersched_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_131919-r02hxt9a
+  payload_bpp: 0.009905559260670731
+  full_stream_bpp: 0.014666301448170731
+  roundtrip_failure_count: 0
+
+CLIC professional+mobile valid, first 64:
+  run: 20260627_stage2_learned_topk512_escape_huffman_32768tokens_8kprior_clicval64_eval_decodersched_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_131015-kqco3khp
+  payload_bpp: 0.010049819946289062
+  full_stream_bpp: 0.014810562133789062
+  roundtrip_failure_count: 0
+```
+
+Decision:
+
+```text
+Promote compact v3 CRC32 as the active actual-byte container for Core MVP
+crop-level experiments. Old compact v1/v2 decoding remains supported so earlier
+saved streams are not invalidated.
+```

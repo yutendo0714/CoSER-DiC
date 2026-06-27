@@ -525,7 +525,8 @@ def _get_varuint(data: bytes, offset: int) -> tuple[int, int]:
 
 
 def _put_varint(out: bytearray, value: int) -> None:
-    _put_varuint(out, (value << 1) ^ (value >> 63))
+    encoded = value << 1 if value >= 0 else ((-value) << 1) - 1
+    _put_varuint(out, encoded)
 
 
 def _get_varint(data: bytes, offset: int) -> tuple[int, int]:

@@ -3,7 +3,9 @@ from .leakage import FORBIDDEN_DECODER_SIDE_INFO, assert_no_forbidden_side_info
 from .residual_grid import (
     ResidualGridCodec,
     StaticResidualGridHuffmanCode,
+    StaticResidualGridHybridHuffmanCode,
     StaticResidualGridPositionHuffmanCode,
+    StaticResidualGridSemanticPositionHuffmanCode,
     UniformResidualGridCode,
 )
 from .semantic_tokens import (
@@ -30,7 +32,9 @@ __all__ = [
     "StaticLeftContextHuffmanCode",
     "StaticPositionHuffmanCode",
     "StaticResidualGridHuffmanCode",
+    "StaticResidualGridHybridHuffmanCode",
     "StaticResidualGridPositionHuffmanCode",
+    "StaticResidualGridSemanticPositionHuffmanCode",
     "TopKEscapeHuffmanCode",
     "UniformResidualGridCode",
     "assert_no_forbidden_side_info",

@@ -212,25 +212,38 @@ Current bootstrap gate:
 
 ```text
 active Stage 2 semantic payload on Kodak: 0.010722 bpp
-Stage 3 active uniform residual d32/b5/r0.25 position-Huffman detail payload on Kodak: 0.008250 bpp
-total semantic+detail payload on Kodak: 0.018972 bpp
-compact CRC32 short-ID full CoSERBitstream payload on Kodak: 0.031301 bpp
+Stage 3 active uniform residual d32/b5/r0.25 hybrid position/semantic-position g4 smoothing=0 detail payload on Kodak: 0.008153 bpp
+total semantic+detail payload on Kodak: 0.018875 bpp
+compact-v3 CRC32 full CoSERBitstream payload on Kodak: 0.023880 bpp
 quality delta vs semantic-only: +0.3957 dB PSNR, +0.00576 MS-SSIM
 roundtrip: true for semantic tokens and detail residual codes
-low-rate d32/b4/r0.25 position-Huffman anchor: 0.016205 total payload bpp, 0.028534 compact CRC32 short-ID full-stream bpp, +0.3705 dB PSNR
-active cross-dataset compact CRC32 short-ID full-stream bpp:
-  Kodak: 0.031301, DIV2K100: 0.031302, CLIC valid: 0.030202
+low-rate d32/b4/r0.25 hybrid position/semantic-position g8 smoothing=0 anchor: 0.016123 total payload bpp, 0.021128 compact-v3 CRC32 full-stream bpp, +0.3705 dB PSNR
+active cross-dataset compact-v3 CRC32 full-stream bpp:
+  Kodak: 0.023880, DIV2K100: 0.023857, CLIC professional valid 41: 0.022732
 active cross-dataset PSNR delta:
-  Kodak: +0.3957 dB, DIV2K100: +0.4601 dB, CLIC valid: +0.7171 dB
-low-rate cross-dataset compact CRC32 short-ID full-stream bpp:
-  Kodak: 0.028534, DIV2K100: 0.028591, CLIC valid: 0.027502
+  Kodak: +0.3957 dB, DIV2K100: +0.4601 dB, CLIC professional valid 41: +0.7171 dB
+low-rate cross-dataset compact-v3 CRC32 full-stream bpp:
+  Kodak: 0.021128, DIV2K100: 0.021039, CLIC professional valid 41: 0.019990
 low-rate cross-dataset PSNR delta:
-  Kodak: +0.3705 dB, DIV2K100: +0.3055 dB, CLIC valid: +0.5649 dB
+  Kodak: +0.3705 dB, DIV2K100: +0.3055 dB, CLIC professional valid 41: +0.5649 dB
+previous pure position-Huffman b4 compact-v3 CRC32 full-stream bpp:
+  Kodak: 0.021205, DIV2K100: 0.021266, CLIC professional valid 41: 0.020171
+semantic-position/hybrid decision:
+  pure semantic-position g4 improves DIV2K/CLIC but regresses Kodak; transmitted-mode hybrid position/semantic-position is active with g8 smoothing=0 for low-rate b4 and g4 smoothing=0 for quality b5
+additional CLIC professional+mobile valid 64 compact-v3 check:
+  active b5 hybrid g4 smoothing=0: 0.022936 bpp, +0.6829 dB
+  previous b5 hybrid g4 smoothing=1: 0.022959 bpp, +0.6829 dB
+  previous b5 hybrid g8: 0.022961 bpp, +0.6829 dB
+  previous pure position b5: 0.023081 bpp, +0.6829 dB
+  previous pure position low-rate b4: 0.020405 bpp, +0.5438 dB
+  low-rate hybrid b4 g8 smoothing=0: 0.020226 bpp, +0.5438 dB
+  previous low-rate hybrid b4 g8 smoothing=1: 0.020235 bpp, +0.5438 dB
 previous zlib-fixed d32/b4/r0.25 detail payload: 0.008759 bpp
 previous global-Huffman d32/b5/r0.25 total payload: 0.019007 bpp
 previous JSON-header active full-stream payload: 0.080399 bpp
 previous compact SHA256 active full-stream payload: 0.037282 bpp
 previous compact CRC32 long-ID active full-stream payload: 0.033864 bpp
+historical compact-v2 CRC32 short-ID full-stream payload: 0.031301 bpp
 ```
 
 Learned residual AE probe:
@@ -240,7 +253,7 @@ implemented semantic-conditioned residual AE with actual transmitted detail payl
 2500step no-rate: 0.025370 total payload bpp, +0.2073 dB, +0.01159 MS-SSIM
 1000step rate-proxy 0.03 from no-rate: 0.015066 total payload bpp, +0.0112 dB, +0.00007 MS-SSIM
 decision: not active; keep as scaffold until a real entropy objective or
-teacher-distilled residual target beats the static-Huffman anchors
+teacher-distilled residual target beats the active hybrid-Huffman anchors
 ```
 
 Reference lessons:
@@ -294,7 +307,7 @@ privacy/semantic-redaction ablations for VLP models
 ## Current Research Priority
 
 1. Replace the fixed residual-grid detail path only when a learned residual
-   entropy model beats the b5/b4 position-Huffman anchors under actual
+   entropy model beats the b5/b4 hybrid-Huffman anchors under actual
    compact CoSERBitstream bytes.
 2. Tighten Stage 2 real-byte coding toward the RDVQ top-k/escape tensor-rANS
    reference, with the current Huffman bridge kept as the active baseline.

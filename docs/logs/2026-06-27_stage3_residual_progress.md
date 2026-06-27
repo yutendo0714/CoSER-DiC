@@ -305,12 +305,14 @@ b4 position Huffman:
     MS-SSIM delta: +0.00246
 ```
 
-Decision: promote position Huffman to the active Stage 3 residual entropy path.
+Intermediate decision at this point: promote position Huffman to the Stage 3
+residual entropy path.
 The gain is small, especially for b5, but it is consistent across Kodak,
-DIV2K, and CLIC while preserving the same decoded residual grid. The active
-quality bootstrap is now d32/b5/r0.25 position Huffman; the low-rate anchor is
-d32/b4/r0.25 position Huffman. The older global Huffman results remain useful
-as a simpler ablation.
+DIV2K, and CLIC while preserving the same decoded residual grid. At this stage
+the quality bootstrap was d32/b5/r0.25 position Huffman and the low-rate anchor
+was d32/b4/r0.25 position Huffman. Later hybrid results supersede both pure
+position anchors. The older global Huffman results remain useful as a simpler
+ablation.
 
 ## Compact CoSERBitstream Header
 
@@ -533,6 +535,213 @@ low-rate d32 b4 r0.25 position Huffman:
 roundtrip_failure_count: 0 for all short-ID compact CRC32 runs
 ```
 
+## Compact v3 Container Recheck
+
+The Stage 3 position-Huffman payloads were re-evaluated with the compact v3
+container. This keeps the same semantic/detail payloads and reconstructed
+images, but replaces fixed-width header fields and literal strings with varints
+and small table IDs. The evaluation still counts exact transmitted
+`CoSERBitstream` bytes after pack/unpack roundtrip.
+
+Active d32 b5 r0.25 position Huffman, compact v3 CRC32:
+
+```text
+Kodak 24:
+  run: 20260627_stage3_residual_poshuff_d32_b5_r025_4096calib_kodak_eval_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_131040-5rsh6r1j
+  total_payload_bpp: 0.018971761067708332
+  stage3_full_stream_bpp: 0.023976643880208332
+  previous compact-v2 CRC32 short-ID full_stream_bpp: 0.031300862630208336
+  PSNR delta vs semantic-only: +0.3957391579945906 dB
+  MS-SSIM delta vs semantic-only: +0.005756633977095249
+
+DIV2K first 100:
+  run: 20260627_stage3_residual_poshuff_d32_b5_r025_4096calib_div2k100_eval_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_131119-i941bt45
+  total_payload_bpp: 0.018973388671875
+  stage3_full_stream_bpp: 0.0239794921875
+  PSNR delta vs semantic-only: +0.4601301479339597 dB
+  MS-SSIM delta vs semantic-only: +0.005369908213615382
+
+CLIC professional valid, 41 usable crops:
+  run: 20260627_stage3_residual_poshuff_d32_b5_r025_4096calib_clicproval64_eval_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_131947-7dho224l
+  total_payload_bpp: 0.017872880144817072
+  stage3_full_stream_bpp: 0.022877762957317072
+  previous compact-v2 CRC32 short-ID full_stream_bpp: 0.030201981707317072
+  PSNR delta vs semantic-only: +0.7170708819133509 dB
+  MS-SSIM delta vs semantic-only: +0.003696853794702637
+
+CLIC professional+mobile valid, first 64:
+  run: 20260627_stage3_residual_poshuff_d32_b5_r025_4096calib_clicval64_eval_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_131151-pbzv3rnm
+  total_payload_bpp: 0.018075942993164062
+  stage3_full_stream_bpp: 0.023080825805664062
+  PSNR delta vs semantic-only: +0.6828677207231522 dB
+  MS-SSIM delta vs semantic-only: +0.003980446141213179
+```
+
+Low-rate d32 b4 r0.25 position Huffman, compact v3 CRC32:
+
+```text
+Kodak 24:
+  run: 20260627_stage3_residual_poshuff_d32_b4_r025_4096calib_kodak_eval_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_131212-mk0oi63a
+  total_payload_bpp: 0.016204833984375
+  stage3_full_stream_bpp: 0.021209716796875
+  previous compact-v2 CRC32 short-ID full_stream_bpp: 0.028533935546875
+  PSNR delta vs semantic-only: +0.37052687009175855 dB
+  MS-SSIM delta vs semantic-only: +0.004654442270596859
+
+DIV2K first 100:
+  run: 20260627_stage3_residual_poshuff_d32_b4_r025_4096calib_div2k100_eval_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_131251-pfi3wdwy
+  total_payload_bpp: 0.01626220703125
+  stage3_full_stream_bpp: 0.02126708984375
+  PSNR delta vs semantic-only: +0.30548624038696204 dB
+  MS-SSIM delta vs semantic-only: +0.004026736319065027
+
+CLIC professional valid, 41 usable crops:
+  run: 20260627_stage3_residual_poshuff_d32_b4_r025_4096calib_clicproval64_eval_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_132013-sutp1qr1
+  total_payload_bpp: 0.015172446646341464
+  stage3_full_stream_bpp: 0.020177329458841462
+  previous compact-v2 CRC32 short-ID full_stream_bpp: 0.027501548208841462
+  PSNR delta vs semantic-only: +0.5648934899306859 dB
+  MS-SSIM delta vs semantic-only: +0.002462687288842469
+
+CLIC professional+mobile valid, first 64:
+  run: 20260627_stage3_residual_poshuff_d32_b4_r025_4096calib_clicval64_eval_compactv3_crc32_shortid
+  wandb: wandb/offline-run-20260627_131325-2nf8ndjf
+  total_payload_bpp: 0.015399932861328125
+  stage3_full_stream_bpp: 0.020404815673828125
+  PSNR delta vs semantic-only: +0.5438231080770493 dB
+  MS-SSIM delta vs semantic-only: +0.0025759688578546047
+```
+
+All six compact v3 Stage 3 runs have exact semantic token and detail code
+roundtrip with `roundtrip_failure_count: 0`.
+
+## Cross-Dataset Residual Grid Diagnostics
+
+After compact v3 evaluation, residual-grid diagnostics were extended beyond
+Kodak to check whether the active range/bit choices are dataset-specific.
+
+```text
+DIV2K first 100, d32 b5 r0.25:
+  run: 20260627_stage3_residual_grid_diag_d32_b5_r025_div2k100
+  wandb: wandb/offline-run-20260627_132259-48qwlt2j
+  symbol_entropy_bits: 2.885082
+  mean_huffman_bits_per_symbol: 2.900781
+  position_entropy_mean: 2.758890
+  global_abs_mean: 0.021706
+  global_rms: 0.030055
+  global_clip_ratio: 0.0
+
+DIV2K first 100, d32 b4 r0.25:
+  run: 20260627_stage3_residual_grid_diag_d32_b4_r025_div2k100
+  wandb: wandb/offline-run-20260627_132315-c3s8xr0p
+  symbol_entropy_bits: 1.930494
+  mean_huffman_bits_per_symbol: 1.975156
+  position_entropy_mean: 1.861790
+  global_abs_mean: 0.021706
+  global_rms: 0.030056
+  global_clip_ratio: 0.0
+
+CLIC professional valid, 41 usable crops, d32 b5 r0.25:
+  run: 20260627_stage3_residual_grid_diag_d32_b5_r025_clicproval41
+  wandb: wandb/offline-run-20260627_132331-32a03c6l
+  symbol_entropy_bits: 2.653491
+  mean_huffman_bits_per_symbol: 2.701982
+  position_entropy_mean: 2.449102
+  global_abs_mean: 0.018461
+  global_rms: 0.024644
+  global_clip_ratio: 0.0
+
+CLIC professional valid, 41 usable crops, d32 b4 r0.25:
+  run: 20260627_stage3_residual_grid_diag_d32_b4_r025_clicproval41
+  wandb: wandb/offline-run-20260627_132346-zfg7cib3
+  symbol_entropy_bits: 1.712887
+  mean_huffman_bits_per_symbol: 1.779599
+  position_entropy_mean: 1.600201
+  global_abs_mean: 0.018461
+  global_rms: 0.024643
+  global_clip_ratio: 0.0
+```
+
+Interpretation: range 0.25 is not clipping on Kodak, DIV2K, or CLIC. DIV2K has
+the widest residual distribution among the three checked datasets, explaining
+its slightly higher detail payload. CLIC professional valid has lower residual
+energy and entropy, so its lower detail bpp is expected. The next learned
+detail model should prioritize conditional entropy modeling and spatially
+adaptive residual allocation rather than increasing the scalar range.
+
+## 8192-Crop Residual Prior Calibration
+
+The active position-Huffman residual priors were refit with the same
+OpenImages+DIV2K calibration roots as the previous 4096-crop priors, but with
+8192 crops. A mistaken probe using the smaller `race_pilot_*` roots produced
+only 256 calibration crops and is not active.
+
+```text
+active b5 prior:
+  run: 20260627_stage3_residual_poshuff_d32_b5_r025_8192calib_openimages_div2k
+  wandb: wandb/offline-run-20260627_132619-hb790ygs
+  prior: outputs/stage3_residual_entropy/20260627_stage3_residual_poshuff_d32_b5_r025_8192calib_openimages_div2k/static_residual_grid_position_huffman_prior.json
+  num_images: 8192
+  symbol_entropy_bits: 2.892438
+  mean_huffman_bits_per_symbol: 2.896092
+  calibration_clip_ratio: 0.000156
+
+active low-rate b4 prior:
+  run: 20260627_stage3_residual_poshuff_d32_b4_r025_8192calib_openimages_div2k
+  wandb: wandb/offline-run-20260627_132854-lb5a7r8q
+  prior: outputs/stage3_residual_entropy/20260627_stage3_residual_poshuff_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_position_huffman_prior.json
+  num_images: 8192
+  symbol_entropy_bits: 1.932172
+  mean_huffman_bits_per_symbol: 1.961296
+  calibration_clip_ratio: 0.000156
+```
+
+Actual compact-v3 evaluation against the 4096-crop active anchors:
+
+```text
+b5 Kodak 24:
+  8192 total_payload_bpp: 0.0189666748046875
+  8192 full_stream_bpp: 0.0239715576171875
+  previous 4096 full_stream_bpp: 0.023976643880208332
+
+b5 DIV2K first 100:
+  8192 total_payload_bpp: 0.018973388671875
+  8192 full_stream_bpp: 0.0239794921875
+  previous 4096 full_stream_bpp: 0.0239794921875
+
+b5 CLIC professional valid, 41 usable crops:
+  8192 total_payload_bpp: 0.017872880144817072
+  8192 full_stream_bpp: 0.022877762957317072
+  previous 4096 full_stream_bpp: 0.022877762957317072
+
+b4 Kodak 24:
+  8192 total_payload_bpp: 0.016199747721354168
+  8192 full_stream_bpp: 0.021204630533854168
+  previous 4096 full_stream_bpp: 0.021209716796875
+
+b4 DIV2K first 100:
+  8192 total_payload_bpp: 0.016260986328125
+  8192 full_stream_bpp: 0.021265869140625
+  previous 4096 full_stream_bpp: 0.02126708984375
+
+b4 CLIC professional valid, 41 usable crops:
+  8192 total_payload_bpp: 0.01516649199695122
+  8192 full_stream_bpp: 0.02017137480945122
+  previous 4096 full_stream_bpp: 0.020177329458841462
+```
+
+Decision: promote the 8192-crop residual priors because they are non-regressive
+and slightly better on Kodak/b4 CLIC, but the gain is too small to justify more
+manual effort on static Huffman calibration. Future bitrate gains should come
+from learned conditional residual entropy, not larger static calibration.
+
 ## Learned Residual AE Probe
 
 A compact semantic-conditioned residual autoencoder was implemented as a
@@ -607,12 +816,12 @@ it keeps the reconstruction identical to zlib-fixed d32/b4/r0.25 while reducing
 Kodak detail payload from 0.008759 bpp to 0.005544 bpp.
 
 The most useful signal is that an 8x8 RGB residual grid at range 0.25 improves
-all three checked datasets. The d32/b4/r0.25 position-Huffman setting is the
-low-rate anchor; the d32/b5/r0.25 position-Huffman setting is the active quality
-bootstrap because it improves Kodak, DIV2K, and CLIC while staying below 0.02
-total payload bpp. The residual-grid clipping ratio is zero on Kodak, and the
-code entropy is far below the fixed width. This suggests Stage 3 should start
-simple:
+all three checked datasets. The active anchors are now hybrid
+position/semantic-position Huffman with smoothing=0: g8 for the d32/b4/r0.25
+low-rate setting and g4 for the d32/b5/r0.25 quality setting. They preserve
+the same decoded residual grids while reducing actual transmitted bytes. The
+residual-grid clipping ratio is zero on Kodak, and the code entropy is far
+below the fixed width. This suggests Stage 3 should start simple:
 
 ```text
 semantic-conditioned residual prediction
@@ -640,6 +849,438 @@ It is useful as an upper diagnostic, but not the low-bitrate active bootstrap.
    teacher-distilled residual predictor instead of the current absolute-latent
    proxy.
 3. Evaluate with total payload bpp and full stream bpp, not estimated bpp.
-4. Keep d32/b5/r0.25 position Huffman as the quality bootstrap and
-   d32/b4/r0.25 position Huffman as the low-rate anchor.
+4. Keep d32/b5/r0.25 hybrid position/semantic-position g4 Huffman with
+   smoothing=0 as the quality bootstrap and d32/b4/r0.25 hybrid
+   position/semantic-position g8 Huffman with smoothing=0 as the low-rate
+   anchor.
 ```
+
+## Semantic-Conditioned Residual Huffman Probe
+
+Implemented and evaluated a semantic-position residual Huffman codec. The
+decoded residual grid is unchanged; only the detail entropy table is conditioned
+on the decoded semantic token group and detail position.
+
+```text
+codec: StaticResidualGridSemanticPositionHuffmanCode
+implementation: src/coserdic/entropy/residual_grid.py
+fit script: scripts/fit_stage3_residual_huffman_prior.py
+eval script: scripts/eval_stage3_uniform_residual_bitstream.py
+unit tests: tests/test_residual_grid.py, tests/test_bitstream.py
+actual stream: compact-v3 CoSERBitstream + CRC32
+```
+
+Calibration on 8192 OpenImages+DIV2K crops:
+
+```text
+g2 mean_huffman_bits_per_symbol: 1.940376
+g4 mean_huffman_bits_per_symbol: 1.930738
+g8 mean_huffman_bits_per_symbol: 1.925484
+g16 mean_huffman_bits_per_symbol: 1.926224
+```
+
+Actual-byte low-rate comparison against the d32/b4/r0.25 position-Huffman
+anchor:
+
+```text
+position-Huffman b4 anchor:
+  Kodak full_stream_bpp: 0.021205
+  DIV2K100 full_stream_bpp: 0.021266
+  CLIC professional valid 41 full_stream_bpp: 0.020171
+  CLIC professional+mobile valid 64 full_stream_bpp: 0.020405
+
+semantic-position g4:
+  Kodak:
+    run: 20260627_stage3_residual_semposhuff_g4_d32_b4_r025_8192calib_kodak_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_134406-ywxky0zy
+    detail_payload_bpp: 0.005493
+    full_stream_bpp: 0.021220
+    delta vs position b4: +0.000015
+  DIV2K100:
+    run: 20260627_stage3_residual_semposhuff_g4_d32_b4_r025_8192calib_div2k100_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_134653-eao2bile
+    detail_payload_bpp: 0.005690
+    full_stream_bpp: 0.021119
+    delta vs position b4: -0.000146
+  CLIC professional valid 41:
+    run: 20260627_stage3_residual_semposhuff_g4_d32_b4_r025_8192calib_clicpro41_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_134724-uk0ynpy0
+    detail_payload_bpp: 0.005207
+    full_stream_bpp: 0.020118
+    delta vs position b4: -0.000054
+  CLIC professional+mobile valid 64:
+    run: 20260627_stage3_residual_semposhuff_g4_d32_b4_r025_8192calib_clicval64_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_134821-8xe59otf
+    detail_payload_bpp: 0.005255
+    full_stream_bpp: 0.020309
+    delta vs position b4: -0.000096
+
+semantic-position g8:
+  Kodak full_stream_bpp: 0.021245
+  DIV2K100 full_stream_bpp: 0.021101
+  CLIC professional valid 41 full_stream_bpp: 0.020118
+```
+
+All semantic and detail roundtrips were exact. g4 is the best cross-domain
+candidate because it improves DIV2K/CLIC actual bpp while keeping the Kodak
+regression very small. g8 is better on DIV2K but less Kodak-safe. g2 and g16
+are not useful enough to continue.
+
+Intermediate decision before the hybrid selector: keep the d32/b5/r0.25
+position-Huffman codec as the quality bootstrap and keep the d32/b4/r0.25
+position-Huffman codec as the headline Kodak-safe low-rate anchor. Track
+semantic-position g4 as the cross-domain low-rate candidate and revisit it with
+smoothing sweeps or an explicit transmitted hybrid mode selector.
+
+## Hybrid Position/Semantic-Position Low-Rate Anchor
+
+Implemented a hybrid residual entropy codec that transmits one explicit mode bit
+per image:
+
+```text
+0: d32/b4/r0.25 position Huffman
+1: d32/b4/r0.25 semantic-position g4 Huffman
+selection rule: minimum actual payload byte length after adding the mode bit
+prior: outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg4_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
+```
+
+Actual compact-v3 CRC32 full-stream results:
+
+```text
+Kodak:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_d32_b4_r025_8192calib_kodak_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_135730-27tc4yrq
+  detail_payload_bpp: 0.005432
+  total_payload_bpp: 0.016154
+  full_stream_bpp: 0.021159
+  previous position b4 full_stream_bpp: 0.021205
+  semantic-position mode rate: 0.5000
+
+DIV2K first 100:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_d32_b4_r025_8192calib_div2k100_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_135822-dwqeioda
+  detail_payload_bpp: 0.005649
+  total_payload_bpp: 0.016074
+  full_stream_bpp: 0.021079
+  previous position b4 full_stream_bpp: 0.021266
+  semantic-position mode rate: 0.6500
+
+CLIC professional valid 41:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_d32_b4_r025_8192calib_clicpro41_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_135857-e8675327
+  detail_payload_bpp: 0.005106
+  total_payload_bpp: 0.015012
+  full_stream_bpp: 0.020017
+  previous position b4 full_stream_bpp: 0.020171
+  semantic-position mode rate: 0.6341
+
+CLIC professional+mobile valid 64:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_d32_b4_r025_8192calib_clicval64_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_135936-m93cc9h7
+  detail_payload_bpp: 0.005178
+  total_payload_bpp: 0.015228
+  full_stream_bpp: 0.020233
+  previous position b4 full_stream_bpp: 0.020405
+  semantic-position mode rate: 0.6875
+```
+
+All semantic/detail roundtrips were exact. Intermediate decision: promote hybrid
+position/semantic-position g4 as the active d32/b4/r0.25 low-rate anchor. Keep
+d32/b5/r0.25 position Huffman as the quality bootstrap until the b5 hybrid
+follow-up below.
+
+Follow-up: g8 semantic-position hybrid was evaluated as an upper check and
+supersedes g4 for the active low-rate anchor.
+
+```text
+g8 hybrid prior:
+  outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg8_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
+
+Kodak:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_d32_b4_r025_8192calib_kodak_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_140417-r6l4r9qq
+  detail_payload_bpp: 0.005412
+  total_payload_bpp: 0.016134
+  full_stream_bpp: 0.021139
+  semantic-position mode rate: 0.4167
+
+DIV2K first 100:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_d32_b4_r025_8192calib_div2k100_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_140517-ryfeudpe
+  detail_payload_bpp: 0.005627
+  total_payload_bpp: 0.016052
+  full_stream_bpp: 0.021057
+  semantic-position mode rate: 0.6800
+
+CLIC professional valid 41:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_d32_b4_r025_8192calib_clicpro41_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_140549-690vmy0n
+  detail_payload_bpp: 0.005085
+  total_payload_bpp: 0.014991
+  full_stream_bpp: 0.019996
+  semantic-position mode rate: 0.6098
+
+CLIC professional+mobile valid 64:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_d32_b4_r025_8192calib_clicval64_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_140633-xae1dhzu
+  detail_payload_bpp: 0.005180
+  total_payload_bpp: 0.015230
+  full_stream_bpp: 0.020235
+  semantic-position mode rate: 0.6563
+```
+
+Decision update: promote hybrid position/semantic-position g8 as the active
+d32/b4/r0.25 low-rate anchor. g4 hybrid remains a slightly better CLIC64-only
+variant, but g8 wins the broader Kodak/DIV2K/CLIC41 comparison.
+
+## Hybrid Position/Semantic-Position Quality Bootstrap
+
+The same transmitted-mode hybrid selector was applied to the d32/b5/r0.25
+quality bootstrap. This is an entropy-only change: the decoded b5 residual grid
+and quality metrics are unchanged relative to the b5 position-Huffman anchor.
+
+```text
+g8 hybrid b5 prior:
+  outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg8_d32_b5_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
+
+Kodak:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_d32_b5_r025_8192calib_kodak_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_141219-g9wkvgad
+  detail_payload_bpp: 0.008169
+  total_payload_bpp: 0.018890
+  full_stream_bpp: 0.023895
+  previous position b5 full_stream_bpp: 0.023972
+  PSNR delta: +0.3957 dB
+  MS-SSIM delta: +0.00576
+  semantic-position mode rate: 0.6250
+
+DIV2K first 100:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_d32_b5_r025_8192calib_div2k100_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_141313-ns4qugzp
+  detail_payload_bpp: 0.008427
+  total_payload_bpp: 0.018851
+  full_stream_bpp: 0.023856
+  previous position b5 full_stream_bpp: 0.023979
+  PSNR delta: +0.4601 dB
+  MS-SSIM delta: +0.00537
+  semantic-position mode rate: 0.6100
+
+CLIC professional valid 41:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_d32_b5_r025_8192calib_clicpro41_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_141346-kg55a39a
+  detail_payload_bpp: 0.007848
+  total_payload_bpp: 0.017754
+  full_stream_bpp: 0.022759
+  previous position b5 full_stream_bpp: 0.022878
+  PSNR delta: +0.7171 dB
+  MS-SSIM delta: +0.00370
+  semantic-position mode rate: 0.5854
+
+CLIC professional+mobile valid 64:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_d32_b5_r025_8192calib_clicval64_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_141615-2y7fctbv
+  detail_payload_bpp: 0.007906
+  total_payload_bpp: 0.017956
+  full_stream_bpp: 0.022961
+  previous position b5 full_stream_bpp: 0.023081
+  PSNR delta: +0.6829 dB
+  MS-SSIM delta: +0.00398
+  semantic-position mode rate: 0.6094
+```
+
+Intermediate decision: g8 hybrid beats pure position Huffman for the
+d32/b5/r0.25 quality bootstrap. The previous b5 position-Huffman prior remains
+the ablation anchor, but it is no longer the active setting.
+
+## B5 Hybrid Group-Count Check
+
+Because the best b4 low-rate group count does not have to be the best b5
+quality group count, the same b5 hybrid evaluation was repeated with a g4
+semantic-position prior.
+
+```text
+g4 fit:
+  run: 20260627_stage3_residual_semposhuff_g4_d32_b5_r025_8192calib_openimages_div2k
+  wandb: wandb/offline-run-20260627_142232-t27ij90u
+  mean_huffman_bits_per_symbol: 2.864717
+  g8 mean_huffman_bits_per_symbol: 2.855923
+
+g4 hybrid prior:
+  outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg4_d32_b5_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
+```
+
+Actual compact-v3 CRC32 full-stream results:
+
+```text
+Kodak:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_d32_b5_r025_8192calib_kodak_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_142315-6xlha7gw
+  detail_payload_bpp: 0.008158
+  total_payload_bpp: 0.018880
+  full_stream_bpp: 0.023885
+  g8 hybrid full_stream_bpp: 0.023895
+  previous position b5 full_stream_bpp: 0.023972
+  semantic-position mode rate: 0.5000
+
+DIV2K first 100:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_d32_b5_r025_8192calib_div2k100_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_142406-cet0880n
+  detail_payload_bpp: 0.008436
+  total_payload_bpp: 0.018861
+  full_stream_bpp: 0.023866
+  g8 hybrid full_stream_bpp: 0.023856
+  previous position b5 full_stream_bpp: 0.023979
+  semantic-position mode rate: 0.6400
+
+CLIC professional valid 41:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_d32_b5_r025_8192calib_clicpro41_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_142439-t0dmfi53
+  detail_payload_bpp: 0.007842
+  total_payload_bpp: 0.017748
+  full_stream_bpp: 0.022753
+  g8 hybrid full_stream_bpp: 0.022759
+  previous position b5 full_stream_bpp: 0.022878
+  semantic-position mode rate: 0.6829
+
+CLIC professional+mobile valid 64:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_d32_b5_r025_8192calib_clicval64_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_142520-cpvoz6vf
+  detail_payload_bpp: 0.007904
+  total_payload_bpp: 0.017954
+  full_stream_bpp: 0.022959
+  g8 hybrid full_stream_bpp: 0.022961
+  previous position b5 full_stream_bpp: 0.023081
+  semantic-position mode rate: 0.7188
+```
+
+Intermediate decision before the smoothing check: promote hybrid
+position/semantic-position g4 as the d32/b5/r0.25 quality bootstrap. g4 wins
+Kodak, CLIC professional valid 41, and CLIC professional+mobile valid 64; g8
+wins DIV2K100 by only 0.000010 bpp. The four-dataset mean favors g4 by about
+0.000002 bpp. Keep d32/b4/r0.25 low-rate on g8.
+
+## B5 G4 Smoothing Check
+
+The active b5 g4 semantic-position prior was then refit with
+`smoothing_count=0`. This increases maximum code length to 17, so the check was
+kept actual-byte and cross-dataset rather than using calibration bits alone.
+
+```text
+g4 smoothing=0 fit:
+  run: 20260627_stage3_residual_semposhuff_g4_sm0_d32_b5_r025_8192calib_openimages_div2k
+  wandb: wandb/offline-run-20260627_143124-sa9qq3lv
+  mean_huffman_bits_per_symbol: 2.855390
+  previous g4 smoothing=1 mean_huffman_bits_per_symbol: 2.864717
+
+g4 smoothing=0 hybrid prior:
+  outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
+```
+
+Actual compact-v3 CRC32 full-stream results:
+
+```text
+Kodak:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_kodak_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_143205-fdb9h7of
+  detail_payload_bpp: 0.008153
+  total_payload_bpp: 0.018875
+  full_stream_bpp: 0.023880
+  previous g4 smoothing=1 full_stream_bpp: 0.023885
+  previous g8 hybrid full_stream_bpp: 0.023895
+  previous position b5 full_stream_bpp: 0.023972
+  semantic-position mode rate: 0.6250
+
+DIV2K first 100:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_div2k100_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_143256-vskufx4d
+  detail_payload_bpp: 0.008428
+  total_payload_bpp: 0.018853
+  full_stream_bpp: 0.023857
+  previous g4 smoothing=1 full_stream_bpp: 0.023866
+  previous g8 hybrid full_stream_bpp: 0.023856
+  previous position b5 full_stream_bpp: 0.023979
+  semantic-position mode rate: 0.7100
+
+CLIC professional valid 41:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_clicpro41_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_143332-rwwvp714
+  detail_payload_bpp: 0.007821
+  total_payload_bpp: 0.017727
+  full_stream_bpp: 0.022732
+  previous g4 smoothing=1 full_stream_bpp: 0.022753
+  previous g8 hybrid full_stream_bpp: 0.022759
+  previous position b5 full_stream_bpp: 0.022878
+  semantic-position mode rate: 0.7561
+
+CLIC professional+mobile valid 64:
+  run: 20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_clicval64_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_143414-ejmfd49b
+  detail_payload_bpp: 0.007881
+  total_payload_bpp: 0.017931
+  full_stream_bpp: 0.022936
+  previous g4 smoothing=1 full_stream_bpp: 0.022959
+  previous g8 hybrid full_stream_bpp: 0.022961
+  previous position b5 full_stream_bpp: 0.023081
+  semantic-position mode rate: 0.7656
+```
+
+Decision update: promote b5 hybrid position/semantic-position g4 with
+smoothing=0 as the active quality bootstrap. It improves all checked datasets
+relative to g4 smoothing=1, and all roundtrips remain exact. DIV2K100 remains
+0.000001 bpp behind g8 hybrid, but the four-dataset mean and CLIC robustness
+favor g4 smoothing=0.
+
+## B4 G8 Smoothing Check
+
+The same no-smoothing check was applied to the active b4 low-rate g8 prior.
+
+```text
+g8 smoothing=0 fit:
+  run: 20260627_stage3_residual_semposhuff_g8_sm0_d32_b4_r025_8192calib_openimages_div2k
+  wandb: wandb/offline-run-20260627_144002-pnzr0xam
+  mean_huffman_bits_per_symbol: 1.917438
+  previous g8 smoothing=1 mean_huffman_bits_per_symbol: 1.925484
+
+g8 smoothing=0 hybrid prior:
+  outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
+```
+
+Actual compact-v3 CRC32 full-stream results:
+
+```text
+Kodak:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_kodak_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_144127-32qhmh9y
+  detail_payload_bpp: 0.005402
+  total_payload_bpp: 0.016123
+  full_stream_bpp: 0.021128
+  previous g8 smoothing=1 full_stream_bpp: 0.021139
+
+DIV2K first 100:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_div2k100_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_144219-l5o0nqw0
+  detail_payload_bpp: 0.005609
+  total_payload_bpp: 0.016034
+  full_stream_bpp: 0.021039
+  previous g8 smoothing=1 full_stream_bpp: 0.021057
+
+CLIC professional valid 41:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_clicpro41_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_144251-0pllsojt
+  detail_payload_bpp: 0.005079
+  total_payload_bpp: 0.014985
+  full_stream_bpp: 0.019990
+  previous g8 smoothing=1 full_stream_bpp: 0.019996
+
+CLIC professional+mobile valid 64:
+  run: 20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_clicval64_eval_compactv3_crc32
+  wandb: wandb/offline-run-20260627_144331-boc32s96
+  detail_payload_bpp: 0.005171
+  total_payload_bpp: 0.015221
+  full_stream_bpp: 0.020226
+  previous g8 smoothing=1 full_stream_bpp: 0.020235
+```
+
+Decision update: promote b4 hybrid position/semantic-position g8 with
+smoothing=0 as the active low-rate anchor. It improves all four checked
+datasets and preserves exact semantic/detail roundtrip.
