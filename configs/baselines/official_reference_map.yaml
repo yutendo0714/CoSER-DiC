@@ -1,5 +1,6 @@
 mvp_reference_policy:
   design_decision: docs/research/design_decisions/003_official_implementation_reference_policy.md
+  stage1_reference_audit: docs/research/design_decisions/004_stage1_semantic_vq_reference_audit.md
   rule: "CoSER-DiC stays a new codec; official repos are references, baselines, sanity checks, or limited initialization sources."
   default_reference_level:
     semantic_vq: L2_implementation_reference
@@ -95,4 +96,3 @@ references:
     key_files:
       - .venv/lib/python3.10/site-packages/compressai/entropy_models/entropy_models.py
       - scripts/eval_compressai_anchor.py
-

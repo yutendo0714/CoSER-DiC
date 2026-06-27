@@ -21,6 +21,9 @@ def test_semantic_vq_forward_backward_small() -> None:
     assert out["indices"].shape == (2, 8, 8)
     assert out["perplexity"].item() >= 1.0
     assert out["soft_perplexity"].item() >= 1.0
+    assert out["assignment_sample_entropy_bits"].item() >= 0.0
+    assert out["assignment_avg_entropy_bits"].item() >= 0.0
+    assert out["soft_usage_entropy_bits"].item() >= 0.0
     loss = loss_fn(x, out)["total"]
     loss.backward()
     assert any(p.grad is not None for p in model.parameters() if p.requires_grad)

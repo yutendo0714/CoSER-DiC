@@ -565,21 +565,54 @@ Added policy files:
 
 ```text
 docs/research/design_decisions/003_official_implementation_reference_policy.md
+docs/research/design_decisions/004_stage1_semantic_vq_reference_audit.md
 configs/baselines/official_reference_map.yaml
 ```
 
-Stage 2 implication:
+Stage 1 re-audit and downstream implication:
 
 ```text
-The semantic-token entropy model should be implemented as a CoSER-specific
-module. RDVQ's conditional token prior and top-k/escape tensor-rANS path are
-the strongest L2 implementation references, but the CoSER model must preserve
-the Core MVP stream separation:
+Official implementation reference starts at Stage 1, not Stage 2. The current
+semantic VQ route remains CoSER-owned, but it must be rechecked against RDVQ,
+GLC, and CoD-Lite before being treated as fixed.
+
+Stage 1 adopts VQ loss decomposition, entropy/codebook diagnostics, and actual
+token bitstream auditing. It deliberately does not adopt RDVQ checkpoint
+initialization, RDVQ tokenizer replacement, CoD-Lite condition codec as the
+primary tokenizer, or GLC as a replacement for semantic/detail separation.
+
+Later stages must preserve the Core MVP stream separation:
 
 semantic VQ tokens -> semantic entropy
 detail residual latents -> semantic-conditioned residual entropy
 auxiliary reconstruction -> one/few-step diffusion refinement
 actual compress/decompress bytes -> official bpp
+```
+
+Stage 1 reference-audit implementation update:
+
+```text
+Added RDVQ-style diagnostics to Stage 1:
+  loss_vq_commitment
+  loss_vq_codebook
+  assignment_sample_entropy_bits
+  assignment_avg_entropy_bits
+  soft_usage_entropy_bits
+
+Updated Stage 1 bitstream eval to record semantic token count from actual
+encoder indices instead of assuming crop_size // 32.
+```
+
+Smoke verification:
+
+```text
+20260627_stage1_reference_audit_metrics_smoke
+
+max_steps: 2
+status: passed
+wandb: wandb/offline-run-20260627_091543-gh2qvnt3
+checkpoint: checkpoints/stage1_semantic_vq/20260627_stage1_reference_audit_metrics_smoke.pt
+experiment doc: docs/experiments/20260627_stage1_reference_audit_metrics_smoke.md
 ```
 
 ## 5k Low-VQ Hard-VQ Extension

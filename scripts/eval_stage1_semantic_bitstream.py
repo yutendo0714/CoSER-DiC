@@ -204,6 +204,7 @@ def main() -> None:
         for codec in codecs
     }
     sample_written = False
+    semantic_token_counts: list[float] = []
 
     with torch.no_grad():
         for batch_index, batch in enumerate(tqdm(loader, desc=run_name)):
@@ -214,6 +215,7 @@ def main() -> None:
             for image_index in range(x.shape[0]):
                 x_i = x[image_index : image_index + 1]
                 indices = indices_batch[image_index]
+                semantic_token_counts.append(float(indices.numel()))
                 for codec in codecs:
                     token_payload = encode_semantic_tokens(
                         indices,
@@ -279,7 +281,9 @@ def main() -> None:
         "checkpoint": str(checkpoint_path),
         "num_images": len(dataset),
         "crop_size": args.crop_size,
-        "semantic_tokens_per_image": int((args.crop_size // 32) * (args.crop_size // 32)),
+        "semantic_tokens_per_image": int(round(mean(semantic_token_counts))),
+        "semantic_tokens_per_image_min": int(min(semantic_token_counts)) if semantic_token_counts else 0,
+        "semantic_tokens_per_image_max": int(max(semantic_token_counts)) if semantic_token_counts else 0,
         "codebook_size": cfg.codebook_size,
     }
     for codec, metrics in per_codec.items():

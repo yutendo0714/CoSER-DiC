@@ -131,11 +131,18 @@ class DifferentiableVQ(nn.Module):
             quant_st = target + (quant - target).detach()
 
         avg_probs = encodings.float().mean(dim=0)
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1.0e-10)))
+        hard_entropy = -torch.sum(avg_probs * torch.log(avg_probs + 1.0e-10))
+        perplexity = torch.exp(hard_entropy)
         avg_soft_probs = usage_probs.mean(dim=0)
         soft_entropy = -torch.sum(avg_soft_probs * torch.log(avg_soft_probs + 1.0e-10))
         usage_loss = 1.0 - soft_entropy / torch.log(z.new_tensor(float(self.cfg.codebook_size)))
         soft_perplexity = torch.exp(soft_entropy)
+        log2 = torch.log(z.new_tensor(2.0))
+        assignment_sample_entropy_bits = -torch.mean(
+            torch.sum(assignment_probs * torch.log(assignment_probs + 1.0e-10), dim=1)
+        ) / log2
+        hard_entropy_bits = hard_entropy / log2
+        soft_usage_entropy_bits = soft_entropy / log2
         used_codes = torch.count_nonzero(encodings.sum(dim=0)).to(z.dtype)
         dead_code_ratio = 1.0 - used_codes / float(self.cfg.codebook_size)
 
@@ -148,6 +155,9 @@ class DifferentiableVQ(nn.Module):
             "codebook_loss": codebook_loss.detach(),
             "perplexity": perplexity.detach(),
             "soft_perplexity": soft_perplexity.detach(),
+            "assignment_sample_entropy_bits": assignment_sample_entropy_bits.detach(),
+            "assignment_avg_entropy_bits": hard_entropy_bits.detach(),
+            "soft_usage_entropy_bits": soft_usage_entropy_bits.detach(),
             "usage_loss": usage_loss,
             "dead_code_ratio": dead_code_ratio.detach(),
             "used_codes": used_codes.detach(),

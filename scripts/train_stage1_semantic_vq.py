@@ -329,6 +329,9 @@ def main() -> None:
             "vq_warmup_steps": vq_warmup_steps,
             "usage_warmup_steps": usage_warmup_steps,
             "grad_clip_norm": args.grad_clip_norm,
+            "implementation_reference_policy": (
+                "docs/research/design_decisions/003_official_implementation_reference_policy.md"
+            ),
         },
     )
 
@@ -378,8 +381,13 @@ def main() -> None:
                     "loss_l1_sem": float(losses["l1_sem"].cpu()),
                     "loss_ms_ssim_sem": float(losses["ms_ssim_sem"].cpu()),
                     "loss_vq": float(losses["vq"].cpu()),
+                    "loss_vq_commitment": float(losses["vq_commitment"].cpu()),
+                    "loss_vq_codebook": float(losses["vq_codebook"].cpu()),
                     "perplexity": float(out["perplexity"].cpu()),
                     "soft_perplexity": float(out["soft_perplexity"].cpu()),
+                    "assignment_sample_entropy_bits": float(out["assignment_sample_entropy_bits"].cpu()),
+                    "assignment_avg_entropy_bits": float(out["assignment_avg_entropy_bits"].cpu()),
+                    "soft_usage_entropy_bits": float(out["soft_usage_entropy_bits"].cpu()),
                     "dead_code_ratio": float(out["dead_code_ratio"].cpu()),
                     "used_codes": float(out["used_codes"].cpu()),
                     "usage_loss": float(out["usage_loss"].detach().cpu()),

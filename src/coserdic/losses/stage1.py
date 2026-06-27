@@ -64,5 +64,7 @@ class Stage1SemanticVQLoss(nn.Module):
             "ms_ssim_sem": ms.detach(),
             "lpips_sem": lp.detach(),
             "vq": out["loss"].detach(),
+            "vq_commitment": out["commitment_loss"].detach(),
+            "vq_codebook": out["codebook_loss"].detach(),
             "usage": usage.detach(),
         }
