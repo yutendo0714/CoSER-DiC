@@ -173,6 +173,14 @@ def main() -> None:
     ms_ssim_values: list[float] = []
     per_image_used: list[int] = []
     soft_perplexities: list[float] = []
+    assignment_sample_entropy_bits: list[float] = []
+    assignment_avg_entropy_bits: list[float] = []
+    soft_usage_entropy_bits: list[float] = []
+    batch_used_codes: list[float] = []
+    batch_dead_code_ratios: list[float] = []
+    commitment_losses: list[float] = []
+    codebook_losses: list[float] = []
+    semantic_token_counts: list[float] = []
     latent_stats: list[dict[str, float]] = []
     quant_stats: list[dict[str, float]] = []
     vq_errors: list[float] = []
@@ -193,6 +201,14 @@ def main() -> None:
             ms_ssim_values.extend(float(v) for v in ms_batch)
             per_image_used.extend(int(torch.unique(sample).numel()) for sample in indices)
             soft_perplexities.append(float(out["soft_perplexity"].detach().cpu()))
+            assignment_sample_entropy_bits.append(float(out["assignment_sample_entropy_bits"].detach().cpu()))
+            assignment_avg_entropy_bits.append(float(out["assignment_avg_entropy_bits"].detach().cpu()))
+            soft_usage_entropy_bits.append(float(out["soft_usage_entropy_bits"].detach().cpu()))
+            batch_used_codes.append(float(out["used_codes"].detach().cpu()))
+            batch_dead_code_ratios.append(float(out["dead_code_ratio"].detach().cpu()))
+            commitment_losses.append(float(out["commitment_loss"].detach().cpu()))
+            codebook_losses.append(float(out["codebook_loss"].detach().cpu()))
+            semantic_token_counts.extend(float(sample.numel()) for sample in indices)
             latent_stats.append(tensor_stats(out["h"], "latent"))
             quant_stats.append(tensor_stats(out["quantized"], "quantized"))
             vq_errors.append(float(torch.mean((out["h"].float() - out["quantized"].float()).pow(2)).detach().cpu()))
@@ -236,6 +252,9 @@ def main() -> None:
         "quantize_mix": args.quantize_mix,
         "num_images": len(dataset),
         "total_tokens": total_tokens,
+        "semantic_tokens_per_image": int(round(mean(semantic_token_counts))),
+        "semantic_tokens_per_image_min": int(min(semantic_token_counts)) if semantic_token_counts else 0,
+        "semantic_tokens_per_image_max": int(max(semantic_token_counts)) if semantic_token_counts else 0,
         "active_codes_global": active_codes,
         "active_code_ratio_global": active_codes / float(cfg.codebook_size),
         "dead_code_ratio_global": 1.0 - active_codes / float(cfg.codebook_size),
@@ -245,6 +264,13 @@ def main() -> None:
         "p50_per_image_used_codes": percentile([float(v) for v in per_image_used], 50),
         "max_per_image_used_codes": max(per_image_used) if per_image_used else 0,
         "mean_soft_perplexity_batch": mean(soft_perplexities),
+        "mean_assignment_sample_entropy_bits": mean(assignment_sample_entropy_bits),
+        "mean_assignment_avg_entropy_bits_batch": mean(assignment_avg_entropy_bits),
+        "mean_soft_usage_entropy_bits": mean(soft_usage_entropy_bits),
+        "mean_batch_used_codes": mean(batch_used_codes),
+        "mean_batch_dead_code_ratio": mean(batch_dead_code_ratios),
+        "mean_commitment_mse": mean(commitment_losses),
+        "mean_codebook_mse": mean(codebook_losses),
         "mean_psnr_sem": mean(psnr_values),
         "mean_l1_sem": mean(l1_values),
         "mean_ms_ssim_sem": mean(ms_ssim_values),

@@ -7,6 +7,7 @@ from .semantic_tokens import (
     encode_semantic_tokens,
     semantic_bits_per_token,
 )
+from .static_huffman import StaticHuffmanCode
 
 __all__ = [
     "CoSERBitstream",
@@ -15,6 +16,7 @@ __all__ = [
     "PackedStreams",
     "SUPPORTED_SEMANTIC_TOKEN_CODECS",
     "SemanticTokenCodec",
+    "StaticHuffmanCode",
     "assert_no_forbidden_side_info",
     "decode_semantic_tokens",
     "encode_semantic_tokens",

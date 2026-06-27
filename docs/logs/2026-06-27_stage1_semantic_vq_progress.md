@@ -550,6 +550,172 @@ Recipe:
 4. Evaluate reconstruction and actual transmitted CoSERBitstream bpp.
 ```
 
+## Stage 1 Reference-Audit Re-evaluation
+
+Analysis run:
+
+```text
+20260627_stage1_semantic_vq_5k_hardvq_vq010_usage001_l1only_kodak_reference_audit_analysis
+
+wandb: wandb/offline-run-20260627_091948-9wuu12ll
+doc: docs/experiments/20260627_stage1_semantic_vq_5k_hardvq_vq010_usage001_l1only_kodak_reference_audit_analysis.md
+```
+
+Key results:
+
+```text
+num_images: 24
+semantic_tokens_per_image: 64
+PSNR: 20.7362 dB
+L1: 0.06508
+MS-SSIM: 0.67577
+active_codes_global: 1064 / 8192
+global_code_entropy_bits: 9.8306
+global_code_perplexity: 910.55
+mean_per_image_used_codes: 57.17 / 64
+mean_assignment_sample_entropy_bits: 0.2015
+mean_assignment_avg_entropy_bits_batch: 7.6758
+mean_soft_usage_entropy_bits: 7.8285
+mean_commitment_mse: 0.5267
+mean_codebook_mse: 0.5267
+```
+
+Bitstream run:
+
+```text
+20260627_stage1_semantic_vq_5k_hardvq_vq010_usage001_l1only_kodak_reference_audit_bitstream
+
+wandb: wandb/offline-run-20260627_092002-kwfua59f
+doc: docs/experiments/20260627_stage1_semantic_vq_5k_hardvq_vq010_usage001_l1only_kodak_reference_audit_bitstream.md
+```
+
+Actual transmitted-byte results:
+
+```text
+fixed_bits:
+  token_payload_bpp: 0.012695
+  full_stream_bpp: 0.074341
+  token_payload_bytes/image: 104
+  stream_bytes/image: 609
+  token_roundtrip: true
+
+zlib_fixed_bits:
+  token_payload_bpp: 0.014023
+  full_stream_bpp: 0.076279
+  token_payload_bytes/image: 114.875
+  stream_bytes/image: 624.875
+  token_roundtrip: true
+```
+
+Interpretation:
+
+```text
+The current Stage 1 checkpoint still passes the semantic-token freeze gate:
+quality is unchanged, token roundtrip is exact, code usage has not collapsed,
+and actual bpp is reported from emitted bytes.
+
+The fixed_bits payload is better than zlib_fixed_bits on this short 64-token
+stream. Stage 2 should therefore target learned/token-prior entropy coding
+rather than generic byte compression. The large gap between global token
+entropy (~9.83 bits/token) and fixed 13 bits/token is the immediate payload
+savings target.
+```
+
+## Stage 2 Static Huffman Bootstrap
+
+Design note:
+
+```text
+docs/research/design_decisions/005_stage2_static_huffman_token_prior.md
+```
+
+Implementation:
+
+```text
+src/coserdic/entropy/static_huffman.py
+scripts/fit_stage2_static_huffman_prior.py
+scripts/eval_stage2_static_huffman_bitstream.py
+tests/test_static_huffman.py
+```
+
+Calibration:
+
+```text
+20260627_stage2_static_huffman_prior_512calib_from_stage1_best
+wandb: wandb/offline-run-20260627_092913-cb1lzc77
+
+num_images: 256
+active_codes: 4725 / 8192
+global_entropy_bits: 11.6919
+fixed_bits_payload_bpp: 0.012695
+mean_huffman_payload_bpp: 0.011768
+payload_bpp_delta_vs_fixed: -0.000927
+```
+
+Kodak evaluation:
+
+```text
+20260627_stage2_static_huffman_512calib_kodak_eval
+wandb: wandb/offline-run-20260627_092928-568umx2m
+
+static_huffman_payload_bpp: 0.012054
+fixed_bits_payload_bpp: 0.012695
+payload_bpp_delta_vs_fixed: -0.000641
+static_huffman_full_stream_bpp: 0.074478
+fixed_bits_full_stream_bpp: 0.074707
+token_roundtrip: true
+PSNR: 20.7363 dB
+MS-SSIM: 0.67577
+```
+
+Interpretation:
+
+```text
+This is a positive Stage 2 bootstrap result. A decoder-known static categorical
+token code already improves actual semantic-token payload bpp by about 5% on
+Kodak without changing reconstruction quality.
+
+The next Stage 2 target is a CoSER-owned learned/contextual semantic token
+prior and then an RDVQ-style top-k/escape arithmetic or rANS coder. The JSON
+audit container overhead still dominates full-stream bpp, so payload bpp and
+full-stream bpp must continue to be reported separately.
+```
+
+## Stage 1 Reimplementation Decision
+
+Decision:
+
+```text
+Do not fully rewrite Stage 1 or restart Stage 1 training from scratch right now.
+The current Stage 1 remains the active CoSER-owned semantic-token baseline.
+```
+
+Reason:
+
+```text
+The current implementation already adopts the official-reference VQ essentials:
+distance assignment, straight-through quantization, codebook/commitment loss
+decomposition, code usage diagnostics, and actual token bitstream auditing.
+
+Official-reference-inspired alternatives have already produced negative or
+unstable results in probes: EMA from scratch, direct hard VQ without AE warm
+start, soft-ST, normalized/cosine VQ, and perceptual/SSIM losses during Stage 1
+training.
+
+The Stage 2 static Huffman result further shows that the current token stream is
+usable and compressible. So the highest-return path is Stage 2 learned/contextual
+semantic entropy coding, not a full Stage 1 rewrite.
+```
+
+Follow-up ablations to keep open:
+
+```text
+EMA from a healthy checkpoint
+RDVQ-style entropy pressure after a learned token prior exists
+10k-20k low-pressure Stage 1 extension from the current best checkpoint
+compact production bitstream container
+```
+
 ## Official Implementation Reference Policy
 
 Decision:

@@ -128,6 +128,21 @@ pytest -q
   max_steps: 2
   status: passed
   wandb: wandb/offline-run-20260627_091543-gh2qvnt3
+
+20260627_stage1_semantic_vq_5k_hardvq_vq010_usage001_l1only_kodak_reference_audit_analysis
+  status: passed
+  wandb: wandb/offline-run-20260627_091948-9wuu12ll
+  PSNR: 20.7362 dB
+  global_code_entropy_bits: 9.8306
+  mean_assignment_sample_entropy_bits: 0.2015
+
+20260627_stage1_semantic_vq_5k_hardvq_vq010_usage001_l1only_kodak_reference_audit_bitstream
+  status: passed
+  wandb: wandb/offline-run-20260627_092002-kwfua59f
+  fixed_bits_payload_bpp: 0.012695
+  fixed_bits_full_stream_bpp: 0.074341
+  zlib_fixed_bits_payload_bpp: 0.014023
+  token_roundtrip: true
 ```
 
 ## Stage 1 Freeze Gate
@@ -150,4 +165,59 @@ actual payload and full-stream bpp are reported
 semantic-only quality is documented
 code usage does not collapse
 the remaining gap to the continuous AE is acknowledged
+```
+
+## Reimplementation Decision
+
+Decision:
+
+```text
+Do not fully rewrite or restart Stage 1 from scratch right now.
+Keep the current CoSER-owned Stage 1 as the active semantic-token baseline.
+Continue improving it through targeted official-reference ablations.
+```
+
+Rationale:
+
+```text
+1. The core VQ mechanics already match the official-reference family:
+   squared-distance assignment, straight-through quantization, explicit
+   codebook/commitment decomposition, code usage diagnostics, and actual token
+   bitstream auditing.
+
+2. Several official-reference-inspired variants were already tested and were
+   worse or unstable at Stage 1:
+   - EMA VQ collapsed early.
+   - direct hard VQ without continuous-AE warm start collapsed.
+   - soft-ST collapsed faster in probes.
+   - normalized/cosine VQ collapsed faster in probes.
+   - MS-SSIM/LPIPS training losses caused non-finite gradients or instability.
+
+3. The current Stage 1 is not meant to be a full RDVQ, GLC, or CoD-Lite clone.
+   Its job is to provide a stable semantic VQ stream for the CoSER
+   semantic/detail/diffusion split.
+
+4. Stage 2 static Huffman coding has already shown that the current Stage 1
+   token stream has exploitable entropy structure and can beat fixed_bits
+   payload bpp with exact roundtrip. That reduces the need for an immediate
+   tokenizer rewrite before improving entropy coding.
+```
+
+Still worth testing later:
+
+```text
+1. EMA re-enable from a healthy AE/codeinit checkpoint, not from scratch.
+2. RDVQ-style entropy pressure coupled to a learned Stage 2 token prior.
+3. A longer 10k-20k low-pressure hard-VQ extension from the current best
+   checkpoint.
+4. A compact production bitstream container so full-stream bpp is not dominated
+   by JSON audit overhead.
+```
+
+Current priority:
+
+```text
+Proceed with Stage 2 learned/contextual semantic token entropy coding.
+Only return to Stage 1 architecture changes if Stage 2 shows that token entropy
+or semantic-only reconstruction quality is the bottleneck.
 ```
