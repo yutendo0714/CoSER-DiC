@@ -13,7 +13,14 @@ from torchvision.transforms import functional as TF
 from tqdm import tqdm
 
 import compressai.zoo as zoo
+from coserdic.datasets.eval_protocols import (
+    EVAL_PROTOCOLS,
+    flatten_selection_paths,
+    protocol_summary,
+    resolve_eval_protocol,
+)
 from coserdic.datasets.image_folder import list_images
+from coserdic.metrics import PerceptualMetricBundle
 from coserdic.metrics import bytes_to_bpp
 from coserdic.utils import crop_to_shape, pad_to_multiple
 
@@ -47,19 +54,36 @@ def load_model(name: str, quality: int, device: torch.device) -> torch.nn.Module
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="/dpl/kodak")
+    parser.add_argument("--eval-protocol", choices=sorted(EVAL_PROTOCOLS), default="")
+    parser.add_argument("--eval-dataset", action="append", default=None)
+    parser.add_argument("--dpl-root", default="/dpl")
+    parser.add_argument("--allow-protocol-count-mismatch", action="store_true")
     parser.add_argument("--model", default="bmshj2018_hyperprior")
     parser.add_argument("--quality", type=int, default=1)
     parser.add_argument("--pad-multiple", type=int, default=64)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output", default="results/baselines/compressai_kodak_q1.json")
     parser.add_argument("--save-recon-dir", default="")
+    parser.add_argument("--compute-perceptual", action="store_true")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
     device = torch.device(args.device)
     model = load_model(args.model, args.quality, device)
+    perceptual = PerceptualMetricBundle().to(device).eval() if args.compute_perceptual else None
 
-    image_paths = list_images(args.dataset)
+    eval_protocol_summary: dict[str, object] | None = None
+    if args.eval_protocol:
+        selections = resolve_eval_protocol(
+            args.eval_protocol,
+            dpl_root=args.dpl_root,
+            dataset_keys=args.eval_dataset,
+            strict_expected_counts=not args.allow_protocol_count_mismatch,
+        )
+        eval_protocol_summary = protocol_summary(args.eval_protocol, selections)
+        image_paths = flatten_selection_paths(selections)
+    else:
+        image_paths = list_images(args.dataset)
     if args.limit:
         image_paths = image_paths[: args.limit]
 
@@ -100,7 +124,7 @@ def main() -> None:
                 "height": height,
                 "width": width,
                 "bitstream_bytes": bitstream_bytes,
-                "actual_bpp": actual_bpp,
+                "actual_payload_bpp": actual_bpp,
                 "psnr_rgb": psnr(x_ref, x_hat),
                 "ms_ssim_rgb": float(ms_ssim(x_ref, x_hat, data_range=1.0).item()),
                 "encode_time_sec": encode_time,
@@ -108,6 +132,10 @@ def main() -> None:
                 "model": args.model,
                 "quality": args.quality,
             }
+            if perceptual is not None:
+                perceptual_result = perceptual(x_ref, x_hat)
+                row["lpips_alex"] = perceptual_result.lpips_alex
+                row["dists"] = perceptual_result.dists
         rows.append(row)
 
         if recon_dir:
@@ -116,17 +144,24 @@ def main() -> None:
     summary = {
         "model": args.model,
         "quality": args.quality,
-        "dataset": str(Path(args.dataset)),
+        "dataset": str(Path(args.dataset)) if not args.eval_protocol else args.eval_protocol,
+        "eval_protocol": args.eval_protocol or "manual_dataset",
+        "eval_datasets": args.eval_dataset or [],
+        "eval_protocol_summary": eval_protocol_summary or {},
+        "compute_perceptual": bool(args.compute_perceptual),
         "num_images": len(rows),
-        "mean_actual_bpp": sum(r["actual_bpp"] for r in rows) / max(1, len(rows)),
+        "mean_actual_payload_bpp": sum(r["actual_payload_bpp"] for r in rows) / max(1, len(rows)),
+        "paper_bpp_metric": "actual_payload_bpp",
         "mean_psnr_rgb": sum(r["psnr_rgb"] for r in rows) / max(1, len(rows)),
         "mean_ms_ssim_rgb": sum(r["ms_ssim_rgb"] for r in rows) / max(1, len(rows)),
         "rows": rows,
     }
+    if args.compute_perceptual:
+        summary["mean_lpips_alex"] = sum(r["lpips_alex"] for r in rows) / max(1, len(rows))
+        summary["mean_dists"] = sum(r["dists"] for r in rows) / max(1, len(rows))
     out_path.write_text(json.dumps(summary, indent=2))
     print(json.dumps({k: v for k, v in summary.items() if k != "rows"}, indent=2))
 
 
 if __name__ == "__main__":
     main()
-

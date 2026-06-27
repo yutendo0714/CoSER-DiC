@@ -63,3 +63,21 @@ def test_soft_st_sends_gradient_to_non_ema_codebook() -> None:
     out = model(x)
     out["x_sem"].mean().backward()
     assert model.vq.embedding.weight.grad is not None
+
+
+def test_semantic_vq_optional_rate_assignment_probs() -> None:
+    cfg = SemanticVQConfig(
+        base_channels=16,
+        latent_channels=32,
+        codebook_size=32,
+        num_res_blocks=1,
+    )
+    model = SemanticVQAutoEncoder(cfg)
+    x = torch.rand(2, 3, 256, 256)
+    out = model(x, return_rate_assignment_probs=True, rate_assignment_temperature=0.2)
+    probs = out["rate_assignment_probs"]
+    assert probs.shape == (2, 8, 8, 32)
+    torch.testing.assert_close(probs.sum(dim=-1), torch.ones(2, 8, 8), atol=1.0e-5, rtol=1.0e-5)
+    rate_loss = probs[..., 0].mean()
+    rate_loss.backward()
+    assert any(p.grad is not None for p in model.encoder.parameters() if p.requires_grad)

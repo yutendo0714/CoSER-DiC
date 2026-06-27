@@ -2,11 +2,18 @@
 
 Date: 2026-06-27
 
+Status: superseded as the active Stage 3 anchor by Decision 011, which adds a
+causal decoder-known left-detail context and improves actual payload bpp on all
+checked datasets. This document remains the historical baseline for
+semantic-position and hybrid position/semantic-position Huffman coding.
+
 ## Context
 
 Decision 007 established the fixed d32 residual grid as the Stage 3 bootstrap.
-Decision 008 made compact-v3 CRC32 CoSERBitstream bytes the active full-stream
-metric. The remaining static residual entropy gap was not from residual range:
+Decision 008 made compact-v3 CRC32 CoSERBitstream bytes available for roundtrip
+audits. Decision 010 clarifies that paper-style LIC comparison uses
+`actual_payload_bpp`, while compact-v3 full-stream bytes are reported as
+`debug_full_stream_bpp`. The remaining static residual entropy gap was not from residual range:
 d32/b4/r0.25 and d32/b5/r0.25 have near-zero clipping on Kodak, DIV2K, and
 CLIC. The next plausible low-risk improvement was conditional entropy coding.
 
@@ -19,7 +26,8 @@ detail stream: d32/b4/r0.25 residual grid
 new condition: detail Huffman table is selected by semantic token group and
                detail grid position
 side information: none per image; token-to-group mapping is stored in the prior
-actual bpp: compact-v3 CoSERBitstream bytes with CRC32
+actual_payload_bpp: semantic entropy payload + detail entropy payload
+debug_full_stream_bpp: compact-v3 CoSERBitstream bytes with CRC32
 ```
 
 The design intentionally stays simple. Semantic groups are obtained by k-means

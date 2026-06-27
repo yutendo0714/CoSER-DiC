@@ -74,7 +74,13 @@ class DifferentiableVQ(nn.Module):
         self.register_buffer("ema_cluster_size", torch.ones(cfg.codebook_size))
         self.register_buffer("ema_embed", self.embedding.weight.detach().clone())
 
-    def forward(self, z: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        z: torch.Tensor,
+        *,
+        return_rate_assignment_probs: bool = False,
+        rate_assignment_temperature: float | None = None,
+    ) -> dict[str, torch.Tensor]:
         b, c, h, w = z.shape
         flat = z.permute(0, 2, 3, 1).reshape(-1, c)
         flat_fp32 = flat.float()
@@ -104,6 +110,10 @@ class DifferentiableVQ(nn.Module):
             -soft_distances / max(self.cfg.soft_st_temperature, 1.0e-6),
             dim=1,
         )
+        rate_assignment_probs = None
+        if return_rate_assignment_probs:
+            temperature = self.cfg.soft_st_temperature if rate_assignment_temperature is None else rate_assignment_temperature
+            rate_assignment_probs = F.softmax(-soft_distances / max(float(temperature), 1.0e-6), dim=1)
         usage_probs = F.softmax(-soft_distances / max(self.cfg.usage_temperature, 1.0e-6), dim=1)
         indices = torch.argmin(distances, dim=1)
         encodings = F.one_hot(indices, self.cfg.codebook_size).to(flat_fp32.dtype)
@@ -146,7 +156,7 @@ class DifferentiableVQ(nn.Module):
         used_codes = torch.count_nonzero(encodings.sum(dim=0)).to(z.dtype)
         dead_code_ratio = 1.0 - used_codes / float(self.cfg.codebook_size)
 
-        return {
+        result = {
             "quantized": quant_st,
             "continuous": target,
             "indices": indices.view(b, h, w),
@@ -162,6 +172,9 @@ class DifferentiableVQ(nn.Module):
             "dead_code_ratio": dead_code_ratio.detach(),
             "used_codes": used_codes.detach(),
         }
+        if rate_assignment_probs is not None:
+            result["rate_assignment_probs"] = rate_assignment_probs.view(b, h, w, self.cfg.codebook_size)
+        return result
 
     @torch.no_grad()
     def _ema_update(self, flat: torch.Tensor, encodings: torch.Tensor) -> None:
@@ -187,11 +200,22 @@ class SemanticVQAutoEncoder(nn.Module):
         self.vq = DifferentiableVQ(cfg)
         self.decoder = SemanticAuxiliaryDecoder(cfg)
 
-    def forward(self, x: torch.Tensor, quantize_mix: float = 1.0) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        quantize_mix: float = 1.0,
+        *,
+        return_rate_assignment_probs: bool = False,
+        rate_assignment_temperature: float | None = None,
+    ) -> dict[str, torch.Tensor]:
         if not 0.0 <= quantize_mix <= 1.0:
             raise ValueError("quantize_mix must be in [0, 1]")
         h = self.encoder(x)
-        q = self.vq(h)
+        q = self.vq(
+            h,
+            return_rate_assignment_probs=return_rate_assignment_probs,
+            rate_assignment_temperature=rate_assignment_temperature,
+        )
         decoder_input = quantize_mix * q["quantized"] + (1.0 - quantize_mix) * q["continuous"]
         x_sem = self.decoder(decoder_input)
         return {"x_sem": x_sem, "h": h, **q}

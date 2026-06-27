@@ -46,7 +46,14 @@ class Stage1SemanticVQLoss(nn.Module):
             lp = x.new_tensor(0.0)
         else:
             self.lpips_model = self.lpips_model.to(x.device)
-            lp = self.lpips_model(x_sem * 2.0 - 1.0, x * 2.0 - 1.0).mean()
+            # LPIPS backward is not stable under CUDA autocast in Stage 1 VQ
+            # probes. Keep the perceptual branch in fp32 while allowing the
+            # reconstruction and VQ terms to use the caller's mixed precision.
+            with torch.amp.autocast(device_type=x.device.type, enabled=False):
+                lp = self.lpips_model(
+                    x_sem.float() * 2.0 - 1.0,
+                    x.float() * 2.0 - 1.0,
+                ).mean()
 
         # Differentiable batch-level entropy pressure against immediate codebook
         # collapse. Hard perplexity remains a diagnostic.

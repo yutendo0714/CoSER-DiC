@@ -14,54 +14,81 @@ model:
     downsample_factor: 32
     bits: 5
     value_range: 0.25
-    payload_codec: hybrid_huffman
+    detail_gain: 1.0
+    payload_codec: semantic_position_leftctx_huffman
     stream_header_codec: compact
     stream_header_format: compact_v3_varint_string_table
     stream_checksum_codec: crc32
     stream_codec_version_id: s3urg0
-    prior: outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
-    build_run: 20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_openimages_div2k
-    semantic_position_fit_run: 20260627_stage3_residual_semposhuff_g4_sm0_d32_b5_r025_8192calib_openimages_div2k
-    semantic_position_fit_wandb: wandb/offline-run-20260627_143124-sa9qq3lv
-    semantic_position_smoothing_count: 0
+    main_bpp_metric: actual_payload_bpp
+    paper_bpp_metric: actual_payload_bpp
+    debug_bpp_metric: debug_full_stream_bpp
+    prior: outputs/stage3_residual_entropy/20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_openimages_div2k/static_residual_grid_semantic_position_leftctx_huffman_prior.json
+    build_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_openimages_div2k
+    left_context_fit_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_openimages_div2k
+    left_context_fit_wandb: wandb/offline-run-20260627_152106-v74n0yot
+    left_context_group_count: 4
+    left_context_smoothing_count: 0
     kodak_semantic_payload_bpp: 0.010722
-    kodak_eval_run: 20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_kodak_eval_compactv3_crc32
-    kodak_eval_wandb: wandb/offline-run-20260627_143205-fdb9h7of
-    kodak_detail_payload_bpp: 0.008153
-    kodak_total_payload_bpp: 0.018875
-    kodak_full_stream_bpp: 0.023880
+    kodak_eval_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_kodak_eval_compactv3_crc32
+    kodak_eval_wandb: wandb/offline-run-20260627_152133-92lwm3b4
+    kodak_detail_payload_bpp: 0.007751
+    kodak_actual_payload_bpp: 0.018473
+    kodak_paper_bpp: 0.018473
+    kodak_total_payload_bpp: 0.018473
+    kodak_debug_full_stream_bpp: 0.023478
+    kodak_full_stream_bpp: 0.023478
     kodak_psnr_delta_vs_semantic_only: 0.3957
     kodak_ms_ssim_delta_vs_semantic_only: 0.00576
     kodak_residual_grid_clip_ratio: 0.0
     kodak_detail_code_entropy_bits: 2.5877
-    kodak_hybrid_semantic_mode_mean: 0.625
     div2k100_semantic_payload_bpp: 0.010425
-    div2k100_eval_run: 20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_div2k100_eval_compactv3_crc32
-    div2k100_eval_wandb: wandb/offline-run-20260627_143256-vskufx4d
-    div2k100_detail_payload_bpp: 0.008428
-    div2k100_total_payload_bpp: 0.018853
-    div2k100_full_stream_bpp: 0.023857
+    div2k100_eval_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_div2k100_eval_compactv3_crc32
+    div2k100_eval_wandb: wandb/offline-run-20260627_152426-7u7pb0ua
+    div2k100_detail_payload_bpp: 0.007965
+    div2k100_actual_payload_bpp: 0.018390
+    div2k100_paper_bpp: 0.018390
+    div2k100_total_payload_bpp: 0.018390
+    div2k100_debug_full_stream_bpp: 0.023395
+    div2k100_full_stream_bpp: 0.023395
     div2k100_psnr_delta_vs_semantic_only: 0.4601
     div2k100_ms_ssim_delta_vs_semantic_only: 0.00537
-    div2k100_hybrid_semantic_mode_mean: 0.71
     clicval41_semantic_payload_bpp: 0.009906
-    clicval41_eval_run: 20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_clicpro41_eval_compactv3_crc32
-    clicval41_eval_wandb: wandb/offline-run-20260627_143332-rwwvp714
-    clicval41_detail_payload_bpp: 0.007821
-    clicval41_total_payload_bpp: 0.017727
-    clicval41_full_stream_bpp: 0.022732
+    clicval41_eval_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_clicpro41_eval_compactv3_crc32
+    clicval41_eval_wandb: wandb/offline-run-20260627_152456-qd8fqs38
+    clicval41_detail_payload_bpp: 0.007351
+    clicval41_actual_payload_bpp: 0.017257
+    clicval41_paper_bpp: 0.017257
+    clicval41_total_payload_bpp: 0.017257
+    clicval41_debug_full_stream_bpp: 0.022261
+    clicval41_full_stream_bpp: 0.022261
     clicval41_psnr_delta_vs_semantic_only: 0.7171
     clicval41_ms_ssim_delta_vs_semantic_only: 0.00370
-    clicval41_hybrid_semantic_mode_mean: 0.7561
     clicval64_semantic_payload_bpp: 0.010050
-    clicval64_eval_run: 20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_clicval64_eval_compactv3_crc32
-    clicval64_eval_wandb: wandb/offline-run-20260627_143414-ejmfd49b
-    clicval64_detail_payload_bpp: 0.007881
-    clicval64_total_payload_bpp: 0.017931
-    clicval64_full_stream_bpp: 0.022936
+    clicval64_eval_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_clicval64_eval_compactv3_crc32
+    clicval64_eval_wandb: wandb/offline-run-20260627_152534-dpm1cmqs
+    clicval64_detail_payload_bpp: 0.007437
+    clicval64_actual_payload_bpp: 0.017487
+    clicval64_paper_bpp: 0.017487
+    clicval64_total_payload_bpp: 0.017487
+    clicval64_debug_full_stream_bpp: 0.022491
+    clicval64_full_stream_bpp: 0.022491
     clicval64_psnr_delta_vs_semantic_only: 0.6829
     clicval64_ms_ssim_delta_vs_semantic_only: 0.00398
-    clicval64_hybrid_semantic_mode_mean: 0.7656
+    previous_hybrid_g4_smoothing0_b5_anchor:
+      prior: outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg4_sm0_d32_b5_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
+      kodak_detail_payload_bpp: 0.008153
+      kodak_actual_payload_bpp: 0.018875
+      kodak_debug_full_stream_bpp: 0.023880
+      div2k100_detail_payload_bpp: 0.008428
+      div2k100_actual_payload_bpp: 0.018853
+      div2k100_debug_full_stream_bpp: 0.023857
+      clicval41_detail_payload_bpp: 0.007821
+      clicval41_actual_payload_bpp: 0.017727
+      clicval41_debug_full_stream_bpp: 0.022732
+      clicval64_detail_payload_bpp: 0.007881
+      clicval64_actual_payload_bpp: 0.017931
+      clicval64_debug_full_stream_bpp: 0.022936
     previous_hybrid_g4_smoothing1_b5_anchor:
       prior: outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg4_d32_b5_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
       kodak_detail_payload_bpp: 0.008158
@@ -105,43 +132,81 @@ model:
       clicval64_total_payload_bpp: 0.018076
       clicval64_full_stream_bpp: 0.023081
     low_rate_anchor_bits: 4
-    low_rate_anchor_payload_codec: hybrid_huffman
-    low_rate_anchor_prior: outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
-    low_rate_anchor_build_run: 20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_openimages_div2k
-    low_rate_anchor_semantic_position_fit_run: 20260627_stage3_residual_semposhuff_g8_sm0_d32_b4_r025_8192calib_openimages_div2k
-    low_rate_anchor_semantic_position_fit_wandb: wandb/offline-run-20260627_144002-pnzr0xam
-    low_rate_anchor_semantic_position_smoothing_count: 0
-    low_rate_anchor_kodak_eval_run: 20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_kodak_eval_compactv3_crc32
-    low_rate_anchor_kodak_eval_wandb: wandb/offline-run-20260627_144127-32qhmh9y
-    low_rate_anchor_kodak_detail_payload_bpp: 0.005402
-    low_rate_anchor_kodak_total_payload_bpp: 0.016123
-    low_rate_anchor_kodak_full_stream_bpp: 0.021128
+    low_rate_anchor_payload_codec: semantic_position_leftctx_huffman
+    low_rate_anchor_prior: outputs/stage3_residual_entropy/20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_semantic_position_leftctx_huffman_prior.json
+    low_rate_anchor_build_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_openimages_div2k
+    low_rate_anchor_left_context_fit_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_openimages_div2k
+    low_rate_anchor_left_context_fit_wandb: wandb/offline-run-20260627_153936-20g6oib6
+    low_rate_anchor_left_context_group_count: 4
+    low_rate_anchor_left_context_smoothing_count: 0
+    low_rate_anchor_kodak_eval_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_kodak_eval_compactv3_crc32
+    low_rate_anchor_kodak_eval_wandb: wandb/offline-run-20260627_154002-l0fvhzxf
+    low_rate_anchor_kodak_detail_payload_bpp: 0.005107
+    low_rate_anchor_kodak_actual_payload_bpp: 0.015828
+    low_rate_anchor_kodak_paper_bpp: 0.015828
+    low_rate_anchor_kodak_total_payload_bpp: 0.015828
+    low_rate_anchor_kodak_debug_full_stream_bpp: 0.020833
+    low_rate_anchor_kodak_full_stream_bpp: 0.020833
     low_rate_anchor_kodak_psnr_delta_vs_semantic_only: 0.3705
-    low_rate_anchor_kodak_hybrid_semantic_mode_mean: 0.4583
-    low_rate_anchor_div2k100_eval_run: 20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_div2k100_eval_compactv3_crc32
-    low_rate_anchor_div2k100_eval_wandb: wandb/offline-run-20260627_144219-l5o0nqw0
-    low_rate_anchor_div2k100_detail_payload_bpp: 0.005609
-    low_rate_anchor_div2k100_total_payload_bpp: 0.016034
-    low_rate_anchor_div2k100_full_stream_bpp: 0.021039
+    low_rate_anchor_div2k100_eval_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_div2k100_eval_compactv3_crc32
+    low_rate_anchor_div2k100_eval_wandb: wandb/offline-run-20260627_154056-oufto3f2
+    low_rate_anchor_div2k100_detail_payload_bpp: 0.005233
+    low_rate_anchor_div2k100_actual_payload_bpp: 0.015658
+    low_rate_anchor_div2k100_paper_bpp: 0.015658
+    low_rate_anchor_div2k100_total_payload_bpp: 0.015658
+    low_rate_anchor_div2k100_debug_full_stream_bpp: 0.020663
+    low_rate_anchor_div2k100_full_stream_bpp: 0.020663
     low_rate_anchor_div2k100_psnr_delta_vs_semantic_only: 0.3055
     low_rate_anchor_div2k100_ms_ssim_delta_vs_semantic_only: 0.00403
-    low_rate_anchor_div2k100_hybrid_semantic_mode_mean: 0.7
-    low_rate_anchor_clicval41_eval_run: 20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_clicpro41_eval_compactv3_crc32
-    low_rate_anchor_clicval41_eval_wandb: wandb/offline-run-20260627_144251-0pllsojt
-    low_rate_anchor_clicval41_detail_payload_bpp: 0.005079
-    low_rate_anchor_clicval41_total_payload_bpp: 0.014985
-    low_rate_anchor_clicval41_full_stream_bpp: 0.019990
+    low_rate_anchor_clicval41_eval_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_clicpro41_eval_compactv3_crc32
+    low_rate_anchor_clicval41_eval_wandb: wandb/offline-run-20260627_154129-4p6l28qx
+    low_rate_anchor_clicval41_detail_payload_bpp: 0.004802
+    low_rate_anchor_clicval41_actual_payload_bpp: 0.014708
+    low_rate_anchor_clicval41_paper_bpp: 0.014708
+    low_rate_anchor_clicval41_total_payload_bpp: 0.014708
+    low_rate_anchor_clicval41_debug_full_stream_bpp: 0.019713
+    low_rate_anchor_clicval41_full_stream_bpp: 0.019713
     low_rate_anchor_clicval41_psnr_delta_vs_semantic_only: 0.5649
     low_rate_anchor_clicval41_ms_ssim_delta_vs_semantic_only: 0.00246
-    low_rate_anchor_clicval41_hybrid_semantic_mode_mean: 0.6341
-    low_rate_anchor_clicval64_eval_run: 20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_clicval64_eval_compactv3_crc32
-    low_rate_anchor_clicval64_eval_wandb: wandb/offline-run-20260627_144331-boc32s96
-    low_rate_anchor_clicval64_detail_payload_bpp: 0.005171
-    low_rate_anchor_clicval64_total_payload_bpp: 0.015221
-    low_rate_anchor_clicval64_full_stream_bpp: 0.020226
+    low_rate_anchor_clicval64_eval_run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_clicval64_eval_compactv3_crc32
+    low_rate_anchor_clicval64_eval_wandb: wandb/offline-run-20260627_154209-kxhgrqat
+    low_rate_anchor_clicval64_detail_payload_bpp: 0.004881
+    low_rate_anchor_clicval64_actual_payload_bpp: 0.014931
+    low_rate_anchor_clicval64_paper_bpp: 0.014931
+    low_rate_anchor_clicval64_total_payload_bpp: 0.014931
+    low_rate_anchor_clicval64_debug_full_stream_bpp: 0.019936
+    low_rate_anchor_clicval64_full_stream_bpp: 0.019936
     low_rate_anchor_clicval64_psnr_delta_vs_semantic_only: 0.5438
     low_rate_anchor_clicval64_ms_ssim_delta_vs_semantic_only: 0.00258
-    low_rate_anchor_clicval64_hybrid_semantic_mode_mean: 0.6875
+    previous_semantic_position_leftctx_g8_b4_anchor:
+      prior: outputs/stage3_residual_entropy/20260627_stage3_residual_semposleft_g8_sm0_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_semantic_position_leftctx_huffman_prior.json
+      fit_mean_huffman_bits_per_symbol: 1.779746
+      kodak_detail_payload_bpp: 0.005107
+      kodak_actual_payload_bpp: 0.015828
+      kodak_debug_full_stream_bpp: 0.020833
+      div2k100_detail_payload_bpp: 0.005247
+      div2k100_actual_payload_bpp: 0.015671
+      div2k100_debug_full_stream_bpp: 0.020676
+      clicval41_detail_payload_bpp: 0.004796
+      clicval41_actual_payload_bpp: 0.014702
+      clicval41_debug_full_stream_bpp: 0.019707
+      clicval64_detail_payload_bpp: 0.004877
+      clicval64_actual_payload_bpp: 0.014927
+      clicval64_debug_full_stream_bpp: 0.019932
+    previous_hybrid_g8_smoothing0_b4_anchor:
+      prior: outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg8_sm0_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
+      kodak_detail_payload_bpp: 0.005402
+      kodak_actual_payload_bpp: 0.016123
+      kodak_debug_full_stream_bpp: 0.021128
+      div2k100_detail_payload_bpp: 0.005609
+      div2k100_actual_payload_bpp: 0.016034
+      div2k100_debug_full_stream_bpp: 0.021039
+      clicval41_detail_payload_bpp: 0.005079
+      clicval41_actual_payload_bpp: 0.014985
+      clicval41_debug_full_stream_bpp: 0.019990
+      clicval64_detail_payload_bpp: 0.005171
+      clicval64_actual_payload_bpp: 0.015221
+      clicval64_debug_full_stream_bpp: 0.020226
     previous_hybrid_g8_smoothing1_b4_anchor:
       prior: outputs/stage3_residual_entropy/20260627_stage3_residual_hybrid_pos_semposg8_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_hybrid_huffman_prior.json
       kodak_full_stream_bpp: 0.021139
@@ -174,6 +239,37 @@ model:
       semantic_group_method: codebook_kmeans
       semantic_group_count: 4
       prior: outputs/stage3_residual_entropy/20260627_stage3_residual_semposhuff_g4_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_semantic_position_huffman_prior.json
+    fixed_detail_gain_sweep:
+      status: keep_as_fixed_decoder_perception_presets_not_side_information
+      protocol: coser_common_lic
+      payload_bpp: unchanged
+      standard_gain: 1.0
+      lpips_preferring_gain: 0.9
+      dists_preferring_gain: 1.1
+      analysis: results/analysis/stage3_gain_sweep/20260627_stage3_b5_coser_common_gain_sweep.json
+      decision: >
+        Keep gain=1.0 as neutral quality anchor for now. Report gain=0.9 and
+        gain=1.1 as fixed decoder-side perception presets only when explicitly
+        labeled; do not choose gain per image unless a transmitted control
+        stream is added and counted.
+    deterministic_eval_anchor:
+      status: use_for_final_stage3_common_lic_tables
+      run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_deterministic_perceptual
+      wandb: wandb/offline-run-20260627_171536-85ydodw2
+      summary: results/bitstreams/stage3_uniform_residual/20260627_stage3_b5_semposleft_g4_coser_common_lic_deterministic_perceptual/summary.json
+      protocol: coser_common_lic
+      num_images: 165
+      detail_gain: 1.0
+      actual_payload_bpp: 0.018370
+      semantic_payload_bpp: 0.010518
+      detail_payload_bpp: 0.007852
+      debug_full_stream_bpp: 0.023375
+      psnr: 21.390054
+      ms_ssim: 0.693741
+      lpips_alex: 0.694714
+      dists: 0.409676
+      roundtrip_failures: 0
+      reproducibility_smoke: results/analysis/reproducibility/20260627_stage3_deterministic_smoke_gain110_a_vs_b.json
       fit_run: 20260627_stage3_residual_semposhuff_g4_d32_b4_r025_8192calib_openimages_div2k
       fit_wandb: wandb/offline-run-20260627_134339-cdts131i
       fit_mean_huffman_bits_per_symbol: 1.930738
@@ -227,6 +323,65 @@ model:
     previous_global_huffman_b5_total_payload_bpp: 0.019007
     previous_global_huffman_b4_total_payload_bpp: 0.016266
     previous_zlib_total_payload_bpp: 0.019480
+    fixed_decoder_postprocess_presets:
+      status: keep_as_fixed_decoder_perceptual_presets_not_side_information
+      protocol: coser_common_lic
+      payload_bpp: unchanged
+      neutral_anchor:
+        decoder_postprocess: none
+        decoder_postprocess_strength: 0.0
+        run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_deterministic_perceptual
+        actual_payload_bpp: 0.018370
+        psnr: 21.390054
+        ms_ssim: 0.693741
+        lpips_alex: 0.694714
+        dists: 0.409676
+      perceptual_unsharp_2x:
+        decoder_postprocess: unsharp3x3
+        decoder_postprocess_strength: 2.0
+        run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_pp_unsharp200_perceptual
+        recon_export_run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_pp_unsharp200_recon_export
+        wandb: wandb/offline-run-20260627_173309-1st4cvof
+        recon_export_wandb: wandb/offline-run-20260627_173614-7nfcvxk4
+        actual_payload_bpp: 0.018370
+        psnr: 21.344658
+        ms_ssim: 0.693968
+        lpips_alex: 0.679759
+        dists: 0.399230
+        lpips_wins_vs_neutral: 163
+        dists_wins_vs_neutral: 163
+        num_images: 165
+        image_fid: 282.247165
+        image_kid_mean: 0.082436
+        patch128_fid: 222.928785
+        patch128_kid_mean: 0.107602
+      metric_max_unsharp_4x:
+        decoder_postprocess: unsharp3x3
+        decoder_postprocess_strength: 4.0
+        run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_pp_unsharp400_perceptual
+        recon_export_run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_pp_unsharp400_recon_export
+        wandb: wandb/offline-run-20260627_174457-o1t7uyfo
+        recon_export_wandb: wandb/offline-run-20260627_174734-k0kmpz7l
+        actual_payload_bpp: 0.018370
+        psnr: 21.274349
+        ms_ssim: 0.693789
+        lpips_alex: 0.663952
+        dists: 0.391251
+        lpips_wins_vs_neutral: 163
+        dists_wins_vs_neutral: 158
+        num_images: 165
+        image_fid: 279.442998
+        image_kid_mean: 0.082808
+        patch128_fid: 229.295739
+        patch128_kid_mean: 0.122919
+      analysis: results/analysis/stage3_decoder_postprocess/20260627_b5_common_unsharp_metric_max_summary.csv
+      decision: >
+        Keep decoder_postprocess=none as the neutral anchor. Report
+        unsharp3x3 strength=2.0 as a safer fixed perceptual preset. Treat
+        unsharp3x3 strength=4.0 as a metric-max diagnostic until stronger
+        visual/perceptual evidence is available. Do not choose postprocess mode
+        or strength per image unless a transmitted control stream is added and
+        counted in actual_payload_bpp.
   learned_residual_probe:
     status: diagnostic_not_active
     model: residual_detail_ae

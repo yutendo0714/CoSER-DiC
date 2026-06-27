@@ -2,6 +2,479 @@
 
 Date: 2026-06-27 JST
 
+## Stage1 LPIPS Ft500 32k Entropy Reconnection
+
+The 4k ft500 reconnection looked promising perceptually but paid too much
+semantic bpp. I completed the 32k token export, low-LR transformer prior, top-k
+escape Huffman fit, and ft500-specific b4 residual recalibration.
+
+Artifacts:
+
+```text
+token export:
+  outputs/stage2_semantic_tokens/20260627_stage2_semantic_tokens_32768_oi_div2k_from_stage1_lpips002_ft500_fullroots/
+  wandb: wandb/offline-run-20260627_185231-k4yrji4g
+
+token prior:
+  checkpoints/stage2_token_prior/20260627_stage2_token_prior_tf256_l4_8kstep_32768tokens_stage1_lpips002_ft500_lr1e4_do02_es.pt
+  wandb: wandb/offline-run-20260627_185255-bty0et9l
+
+semantic top-k prior:
+  outputs/stage2_learned_entropy/20260627_stage2_learned_topk512_escape_huffman_fit_32768tokens_stage1_lpips002_ft500_lowlr8k/
+  wandb: wandb/offline-run-20260627_190948-opdn8c13
+
+residual prior:
+  outputs/stage3_residual_entropy/20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_stage1_lpips002_ft500/
+  wandb: wandb/offline-run-20260627_191628-tjvnaajt
+```
+
+Key entropy numbers:
+
+```text
+ft500 32768-token global_entropy_bits: 12.281880
+ft500 32768-token prior val bits:      10.343893
+topk512 hit / escape:                   0.652379 / 0.347621
+calibration mean payload bpp:           0.010480
+```
+
+Final CoSER common LIC candidate in this block:
+
+```text
+LPIPS-first run:
+  20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_32kprior_8192resid_pp_unsharp200_perceptual
+wandb:
+  wandb/offline-run-20260627_191835-4a8p89bo
+
+actual_payload_bpp: 0.016248
+semantic_bpp:       0.011025
+detail_bpp:         0.005223
+PSNR / MS-SSIM:    21.217353 / 0.694143
+LPIPS / DISTS:      0.597244 / 0.374431
+roundtrip:          semantic=true, detail=true
+```
+
+Safer variants at the same actual payload bpp:
+
+```text
+none:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_32kprior_8192resid_perceptual
+  wandb: wandb/offline-run-20260627_192703-v8pgpwvu
+  PSNR / MS-SSIM: 21.298414 / 0.695166
+  LPIPS / DISTS: 0.626042 / 0.387196
+
+unsharp1:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_32kprior_8192resid_pp_unsharp100_perceptual
+  wandb: wandb/offline-run-20260627_192510-gmx7wmf5
+  PSNR / MS-SSIM: 21.262786 / 0.694748
+  LPIPS / DISTS: 0.611016 / 0.379559
+```
+
+Comparison against active b5/unsharp2:
+
+```text
+active b5/unsharp2 actual_payload_bpp: 0.018370
+candidate bpp delta:                  -0.002122
+candidate LPIPS delta:                -0.082515
+candidate DISTS delta:                -0.024799
+candidate PSNR delta:                 -0.127305
+
+per-image wins:
+  lower bpp:     161 / 165
+  lower LPIPS:   163 / 165
+  lower DISTS:   156 / 165
+  higher PSNR:    38 / 165
+```
+
+Distribution metrics:
+
+```text
+image FID/KID:     289.087749 / 0.107389
+patch128 FID/KID: 235.915591 / 0.122006
+```
+
+Interpretation:
+
+```text
+This is now a serious rate-perception candidate: it is lower-rate than active
+b5/unsharp2 and much better on LPIPS/DISTS. It is not an RD replacement because
+PSNR drops and FID/KID remain worse than the active unsharp2 branch. The next
+research pressure should be entropy-aware Stage1 tuning or a stronger token
+prior, plus safer residual/postprocess settings for distribution quality.
+```
+
+## Stage1 LPIPS Ft500 d384/l6 Semantic Prior Update
+
+The d256/l4 32k prior recovered much of the ft500 entropy penalty, but the
+validation NLL still lagged the active branch. I trained a stronger d384/l6
+token prior and re-fit the same top-k512 escape Huffman interface.
+
+Artifacts:
+
+```text
+token prior:
+  checkpoints/stage2_token_prior/20260627_stage2_token_prior_tf384_l6_12kstep_32768tokens_stage1_lpips002_ft500_lr1e4_do02_es.pt
+  wandb: wandb/offline-run-20260627_192905-99zdasv2
+
+semantic top-k prior:
+  outputs/stage2_learned_entropy/20260627_stage2_learned_topk512_escape_huffman_fit_32768tokens_stage1_lpips002_ft500_tf384_l6_12k/
+  wandb: wandb/offline-run-20260627_194728-0e3l9l4y
+```
+
+Entropy comparison:
+
+```text
+d256/l4 topk512:
+  topk_hit / escape:          0.652379 / 0.347621
+  bits_per_token:             10.676670
+  calibration payload bpp:    0.010480
+
+d384/l6 topk512:
+  topk_hit / escape:          0.718921 / 0.281079
+  bits_per_token:             10.106184
+  calibration payload bpp:    0.009923
+
+d384/l6 topk256:
+  topk_hit / escape:          0.607009 / 0.392991
+  bits_per_token:             10.360242
+  calibration payload bpp:    0.010171
+  decision:                   reject; worse than topk512
+
+d384/l6 topk1024:
+  topk_hit / escape:          0.828103 / 0.171897
+  bits_per_token:              9.948924
+  calibration payload bpp:    0.009769
+  decision:                   strong; run Stage3
+
+d384/l6 topk2048:
+  topk_hit / escape:          0.921675 / 0.078325
+  bits_per_token:              9.825860
+  calibration payload bpp:    0.009649
+  wandb:                      wandb/offline-run-20260627_214048-j2ofqg13
+  decision:                   best payload bpp, but much slower to fit/measure
+```
+
+CoSER common LIC, same Stage1 checkpoint, b4 residual prior, and fixed
+postprocess settings:
+
+```text
+shared:
+  actual_payload_bpp: 0.015985
+  semantic_bpp:       0.010761
+  detail_bpp:         0.005223
+  semantic_topk_hit:  0.732102
+  roundtrip:          semantic=true, detail=true
+
+none:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk1024_32kprior_8192resid_perceptual
+  wandb: wandb/offline-run-20260627_203802-o0mbxyay
+  PSNR / MS-SSIM: 21.298414 / 0.695166
+  LPIPS / DISTS: 0.626042 / 0.387196
+
+unsharp1:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk1024_32kprior_8192resid_pp_unsharp100_perceptual
+  wandb: wandb/offline-run-20260627_203526-vhgg7k36
+  PSNR / MS-SSIM: 21.262786 / 0.694748
+  LPIPS / DISTS: 0.611016 / 0.379559
+
+unsharp2:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk1024_32kprior_8192resid_pp_unsharp200_perceptual
+  wandb: wandb/offline-run-20260627_203243-scti6si0
+  PSNR / MS-SSIM: 21.217353 / 0.694143
+  LPIPS / DISTS: 0.597244 / 0.374431
+
+topk2048 none:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk2048_32kprior_8192resid_perceptual
+  wandb: wandb/offline-run-20260627_215931-4osw5ifz
+  actual_payload_bpp: 0.015850
+  semantic_bpp:       0.010627
+  detail_bpp:         0.005223
+  semantic_topk_hit:  0.855398
+  PSNR / MS-SSIM:     21.298414 / 0.695166
+  LPIPS / DISTS:      0.626042 / 0.387196
+  roundtrip:          semantic=true, detail=true
+
+topk2048 unsharp1:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk2048_32kprior_8192resid_pp_unsharp100_perceptual
+  wandb: wandb/offline-run-20260627_220229-7003wutq
+  actual_payload_bpp: 0.015850
+  semantic_bpp:       0.010627
+  detail_bpp:         0.005223
+  semantic_topk_hit:  0.855398
+  PSNR / MS-SSIM:     21.262786 / 0.694748
+  LPIPS / DISTS:      0.611016 / 0.379559
+  roundtrip:          semantic=true, detail=true
+
+topk2048 unsharp2:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk2048_32kprior_8192resid_pp_unsharp200_perceptual
+  wandb: wandb/offline-run-20260627_214350-wk0otkqf
+  actual_payload_bpp: 0.015850
+  semantic_bpp:       0.010627
+  detail_bpp:         0.005223
+  semantic_topk_hit:  0.855398
+  PSNR / MS-SSIM:     21.217353 / 0.694143
+  LPIPS / DISTS:      0.597244 / 0.374431
+  roundtrip:          semantic=true, detail=true
+```
+
+Interpretation:
+
+```text
+This is a clean entropy-side improvement. Reconstruction metrics are unchanged
+because the Stage1 checkpoint, residual quantizer, and postprocess are fixed,
+but actual_payload_bpp drops from 0.016248 to 0.015985 with topk1024 and to
+0.015850 with topk2048 versus the d256 32k prior. Topk256 was too small,
+topk512 was good, topk1024 was efficient, and topk2048 gave the best actual
+Stage3 payload while being much slower to fit/measure. Against active
+b5/unsharp2, the ft500 b4/unsharp2 candidate is now 0.002520 bpp lower while
+preserving the same LPIPS/DISTS advantage. The next autonomous pressure should
+shift from top-k width to residual/FID tuning or entropy-aware Stage1
+regularization.
+```
+
+GenCodec reproduction protocol for the same topk sweep:
+
+```text
+strict protocol:
+  Kodak 24
+  CLIC2020 test 428 = professional/test 250 + mobile/test 178
+  DIV2K val 100 = 0801.png-0900.png
+
+topk1024 unsharp2:
+  run: 20260627_stage3_b4_semposleft_g4_gencodec_reproduction_stage1_lpips002_ft500_tf384_topk1024_32kprior_8192resid_pp_unsharp200_perceptual
+  wandb: wandb/offline-run-20260627_205054-fjbibejz
+  actual_payload_bpp: 0.015409
+  semantic_bpp:       0.010236
+  detail_bpp:         0.005173
+  PSNR / MS-SSIM:     21.931414 / 0.723483
+  LPIPS / DISTS:      0.562911 / 0.364492
+
+topk2048 unsharp2:
+  run: 20260627_stage3_b4_semposleft_g4_gencodec_reproduction_stage1_lpips002_ft500_tf384_topk2048_32kprior_8192resid_pp_unsharp200_perceptual
+  wandb: wandb/offline-run-20260627_215239-g5mfih6n
+  actual_payload_bpp: 0.015293
+  semantic_bpp:       0.010120
+  detail_bpp:         0.005173
+  PSNR / MS-SSIM:     21.931414 / 0.723483
+  LPIPS / DISTS:      0.562911 / 0.364492
+  roundtrip:          semantic=true, detail=true
+```
+
+## Stage1 LPIPS Ft500 Topk2048 Detail Gain Probe
+
+After locking the stronger topk2048 semantic payload, I checked whether a fixed
+decoder `detail_gain` can reduce the FID/KID regression without changing the
+actual transmitted payload. This keeps the Core MVP structure intact: semantic
+tokens and residual codes are unchanged, while the decoder applies a fixed
+gain to the decoded residual grid.
+
+CoSER common LIC, same checkpoint/prior/residual stream:
+
+```text
+shared payload:
+  actual_payload_bpp: 0.015850
+  semantic_bpp:       0.010627
+  detail_bpp:         0.005223
+  semantic_topk_hit:  0.855398
+  roundtrip:          semantic=true, detail=true
+
+gain0.5 none:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk2048_32kprior_8192resid_gain050_perceptual
+  recon export: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk2048_32kprior_8192resid_gain050_recon_export
+  wandb: wandb/offline-run-20260627_220803-2o77kk4f
+  PSNR / MS-SSIM:     21.179101 / 0.694154
+  LPIPS / DISTS:      0.623141 / 0.389397
+  image FID / KID:    282.674784 / 0.090455
+  patch128 FID / KID: 227.783365 / 0.104939
+
+gain0.75 none:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk2048_32kprior_8192resid_gain075_perceptual
+  recon export: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk2048_32kprior_8192resid_gain075_recon_export
+  wandb: wandb/offline-run-20260627_221055-sa6tkorz
+  PSNR / MS-SSIM:     21.273588 / 0.694981
+  LPIPS / DISTS:      0.623817 / 0.388134
+  image FID / KID:    282.912345 / 0.091588
+  patch128 FID / KID: 228.972532 / 0.107392
+
+gain1.0 none baseline:
+  PSNR / MS-SSIM:     21.298414 / 0.695166
+  LPIPS / DISTS:      0.626042 / 0.387196
+  image FID / KID:    284.082780 / 0.096637
+  patch128 FID / KID: 230.860580 / 0.112192
+```
+
+Interpretation:
+
+```text
+detail_gain=0.5 is a real FID/KID-safe fixed decoder point. It improves both
+image and patch distribution metrics versus gain1.0 none and nearly reaches
+the active b5 image FID, but it sacrifices most of the LPIPS/DISTS benefit.
+detail_gain=0.75 is in between but is worse than gain0.5 on all measured
+distribution metrics. Recommended reporting split is now:
+
+  gain0.5 none:
+    FID/KID-safe point
+  gain1.0 unsharp1:
+    balanced perceptual point
+  gain1.0 unsharp2:
+    LPIPS/DISTS-first point
+```
+
+## Evaluation Protocol Correction
+
+Added named evaluation protocol resolution after auditing `/dpl`.
+
+```text
+CLIC2020 test:
+  /dpl/clic/professional/test = 250
+  /dpl/clic/mobile/test       = 178
+  total                       = 428
+
+DIV2K:
+  /dpl/div2k is a flat mixed 0001.png-0900.png directory.
+  Evaluation must use 0801.png-0900.png for DIV2K validation.
+```
+
+New resolver and report command:
+
+```text
+src/coserdic/datasets/eval_protocols.py
+scripts/dataset_protocol_report.py
+configs/eval/protocols.yaml
+```
+
+## Protocol Perceptual Evaluation
+
+Added optional LPIPS/DISTS evaluation for Stage 1/2/3 bitstream scripts and
+CompressAI anchors:
+
+```text
+src/coserdic/metrics/perceptual.py
+```
+
+CoSER common LIC protocol, 165 images:
+
+```text
+b5 quality anchor:
+  run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_perceptual
+  actual_payload_bpp: 0.018368
+  PSNR delta: +0.471572 dB
+  LPIPS delta: -0.005412
+  DISTS delta: -0.005049
+
+b4 low-rate anchor:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_perceptual
+  actual_payload_bpp: 0.015678
+  PSNR delta: +0.395093 dB
+  LPIPS delta: -0.000832
+  DISTS delta: -0.005221
+```
+
+GenCodec reproduction protocol, 552 images:
+
+```text
+b5 quality anchor:
+  run: 20260627_stage3_b5_semposleft_g4_gencodec_reproduction_perceptual
+  actual_payload_bpp: 0.017736
+  PSNR delta: +0.554524 dB
+  LPIPS delta: -0.006018
+  DISTS delta: -0.004718
+```
+
+Decision memo:
+
+```text
+docs/research/design_decisions/013_stage3_protocol_perceptual_evaluation.md
+```
+
+## Fixed Decoder Postprocess Probe
+
+Added a deterministic fixed decoder postprocess path for Stage 3:
+
+```text
+src/coserdic/models/postprocess.py
+scripts/eval_stage3_uniform_residual_bitstream.py
+```
+
+The postprocess is applied after semantic reconstruction plus decoded residual
+grid. It is a fixed decoder configuration and does not change
+`actual_payload_bpp`; per-image postprocess selection would need a transmitted
+control stream and must be counted.
+
+Best current perceptual preset:
+
+```text
+decoder_postprocess: unsharp3x3
+decoder_postprocess_strength: 2.0
+run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_pp_unsharp200_perceptual
+wandb: wandb/offline-run-20260627_173309-1st4cvof
+recon export: 20260627_stage3_b5_semposleft_g4_coser_common_lic_pp_unsharp200_recon_export
+recon export wandb: wandb/offline-run-20260627_173614-7nfcvxk4
+```
+
+CoSER common LIC, 165 images:
+
+```text
+neutral b5:
+  actual_payload_bpp: 0.018370
+  PSNR / MS-SSIM: 21.390054 / 0.693741
+  LPIPS / DISTS: 0.694714 / 0.409676
+
+unsharp3x3 strength 2.0:
+  actual_payload_bpp: 0.018370
+  PSNR / MS-SSIM: 21.344658 / 0.693968
+  LPIPS / DISTS: 0.679759 / 0.399230
+  LPIPS wins vs neutral: 163 / 165
+  DISTS wins vs neutral: 163 / 165
+```
+
+Metric-max diagnostic:
+
+```text
+decoder_postprocess: unsharp3x3
+decoder_postprocess_strength: 4.0
+run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_pp_unsharp400_perceptual
+wandb: wandb/offline-run-20260627_174457-o1t7uyfo
+recon export: 20260627_stage3_b5_semposleft_g4_coser_common_lic_pp_unsharp400_recon_export
+recon export wandb: wandb/offline-run-20260627_174734-k0kmpz7l
+
+actual_payload_bpp: 0.018370
+PSNR / MS-SSIM: 21.274349 / 0.693789
+LPIPS / DISTS: 0.663952 / 0.391251
+LPIPS wins vs neutral: 163 / 165
+DISTS wins vs neutral: 158 / 165
+```
+
+Distribution metrics for unsharp3x3 strength 2.0:
+
+```text
+image FID/KID: 282.247165 / 0.082436
+patch128 FID/KID: 222.928785 / 0.107602
+```
+
+Distribution metrics for unsharp3x3 strength 4.0:
+
+```text
+image FID/KID: 279.442998 / 0.082808
+patch128 FID/KID: 229.295739 / 0.122919
+```
+
+Interpretation:
+
+```text
+Keep decoder_postprocess=none as the neutral anchor.
+Keep unsharp3x3 strength=2.0 as a safer fixed perceptual preset.
+Treat unsharp3x3 strength=4.0 as a metric-max diagnostic for now because
+patch-level distribution metrics worsen versus 2.0.
+Do not claim this as learned Stage 5 progress; it is a useful no-payload
+diagnostic that motivates a learned perceptual refinement decoder.
+```
+
+Decision memo:
+
+```text
+docs/research/design_decisions/017_stage3_fixed_decoder_unsharp_postprocess.md
+```
+
 ## Starting Point
 
 Stage 2 active semantic stream:
@@ -816,12 +1289,12 @@ it keeps the reconstruction identical to zlib-fixed d32/b4/r0.25 while reducing
 Kodak detail payload from 0.008759 bpp to 0.005544 bpp.
 
 The most useful signal is that an 8x8 RGB residual grid at range 0.25 improves
-all three checked datasets. The active anchors are now hybrid
-position/semantic-position Huffman with smoothing=0: g8 for the d32/b4/r0.25
-low-rate setting and g4 for the d32/b5/r0.25 quality setting. They preserve
-the same decoded residual grids while reducing actual transmitted bytes. The
-residual-grid clipping ratio is zero on Kodak, and the code entropy is far
-below the fixed width. This suggests Stage 3 should start simple:
+all three checked datasets. The active anchors are now semantic-position-left
+Huffman with smoothing=0: g8 for the d32/b4/r0.25 low-rate setting and g4 for
+the d32/b5/r0.25 quality setting. They preserve the same decoded residual
+grids while reducing actual transmitted bytes. The residual-grid clipping ratio
+is zero on Kodak, and the code entropy is far below the fixed width. This
+suggests Stage 3 should start simple:
 
 ```text
 semantic-conditioned residual prediction
@@ -848,11 +1321,10 @@ It is useful as an upper diagnostic, but not the low-bitrate active bootstrap.
 2. Refine the learned residual AE with a real entropy objective or a simpler
    teacher-distilled residual predictor instead of the current absolute-latent
    proxy.
-3. Evaluate with total payload bpp and full stream bpp, not estimated bpp.
-4. Keep d32/b5/r0.25 hybrid position/semantic-position g4 Huffman with
-   smoothing=0 as the quality bootstrap and d32/b4/r0.25 hybrid
-   position/semantic-position g8 Huffman with smoothing=0 as the low-rate
-   anchor.
+3. Evaluate with actual_payload_bpp and debug_full_stream_bpp, not estimated bpp.
+4. Keep d32/b5/r0.25 semantic-position-left g4 Huffman with smoothing=0 as the
+   quality bootstrap and d32/b4/r0.25 semantic-position-left g4 Huffman with
+   smoothing=0 as the low-rate anchor.
 ```
 
 ## Semantic-Conditioned Residual Huffman Probe
@@ -1284,3 +1756,721 @@ CLIC professional+mobile valid 64:
 Decision update: promote b4 hybrid position/semantic-position g8 with
 smoothing=0 as the active low-rate anchor. It improves all four checked
 datasets and preserves exact semantic/detail roundtrip.
+
+## Bpp Reporting Policy Alignment
+
+Decision 010 reclassifies the main LIC paper metric as `actual_payload_bpp`,
+matching CompressAI-style entropy-coded payload byte accounting. For current
+Stage3 uniform residual runs:
+
+```text
+actual_payload_bpp = paper_bpp = semantic_payload_bpp + detail_payload_bpp
+debug_full_stream_bpp = compact-v3 CoSERBitstream bytes including header/checksum
+```
+
+The previous `stage3_full_stream_bpp` values remain useful for roundtrip and
+container-overhead audits, but they are no longer the main paper comparison
+bpp. Future eval runs emit explicit `actual_payload_bpp_mean`,
+`paper_bpp_mean`, and `debug_full_stream_bpp_mean` fields while preserving
+legacy `total_payload_bpp_mean` and `stage3_full_stream_bpp_mean` aliases.
+
+Previous paper-style anchors before semantic-position-left update:
+
+```text
+b5 quality anchor, hybrid g4 smoothing=0:
+  Kodak actual_payload_bpp: 0.018875
+  DIV2K100 actual_payload_bpp: 0.018853
+  CLIC professional valid 41 actual_payload_bpp: 0.017727
+  CLIC professional+mobile valid 64 actual_payload_bpp: 0.017931
+
+b4 low-rate anchor, hybrid g8 smoothing=0:
+  Kodak actual_payload_bpp: 0.016123
+  DIV2K100 actual_payload_bpp: 0.016034
+  CLIC professional valid 41 actual_payload_bpp: 0.014985
+  CLIC professional+mobile valid 64 actual_payload_bpp: 0.015221
+```
+
+## Semantic-Position-Left Context Huffman
+
+After aligning the bpp policy, Stage 3 entropy coding was tightened by adding a
+causal left-residual context to the semantic-position Huffman prior. This does
+not transmit any per-image table or mask. The decoder already knows the
+semantic tokens and decodes residual codes in channel-major raster order, so the
+left detail code is available when each next residual symbol is decoded.
+
+Implementation:
+
+```text
+codec:
+  StaticResidualGridSemanticPositionLeftContextHuffmanCode
+  src/coserdic/entropy/residual_grid.py
+
+fit:
+  scripts/fit_stage3_residual_huffman_prior.py
+  --coding-mode semantic_position_leftctx_huffman
+
+eval:
+  scripts/eval_stage3_uniform_residual_bitstream.py
+  --detail-codec semantic_position_leftctx_huffman
+```
+
+Calibration:
+
+```text
+b4 low-rate:
+  run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_openimages_div2k
+  wandb: wandb/offline-run-20260627_153936-20g6oib6
+  prior:
+    outputs/stage3_residual_entropy/20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_openimages_div2k/static_residual_grid_semantic_position_leftctx_huffman_prior.json
+  mean_huffman_bits_per_symbol: 1.788819
+  previous semantic-position-left g8 smoothing=0: 1.779746
+  previous semantic-position g8 smoothing=0: 1.917438
+
+b5 quality:
+  run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_openimages_div2k
+  wandb: wandb/offline-run-20260627_152106-v74n0yot
+  prior:
+    outputs/stage3_residual_entropy/20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_openimages_div2k/static_residual_grid_semantic_position_leftctx_huffman_prior.json
+  mean_huffman_bits_per_symbol: 2.697383
+  previous semantic-position g4 smoothing=0: 2.855390
+```
+
+Actual-payload results:
+
+```text
+b4 low-rate, d32/b4/r0.25, semantic-position-left g4:
+  Kodak:
+    run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_kodak_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_154002-l0fvhzxf
+    detail_payload_bpp: 0.005107
+    actual_payload_bpp: 0.015828
+    debug_full_stream_bpp: 0.020833
+    PSNR delta: +0.3705 dB
+    previous active actual_payload_bpp: 0.016123
+
+  DIV2K first 100:
+    run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_div2k100_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_154056-oufto3f2
+    detail_payload_bpp: 0.005233
+    actual_payload_bpp: 0.015658
+    debug_full_stream_bpp: 0.020663
+    PSNR delta: +0.3055 dB
+    previous active actual_payload_bpp: 0.016034
+
+  CLIC professional valid 41:
+    run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_clicpro41_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_154129-4p6l28qx
+    detail_payload_bpp: 0.004802
+    actual_payload_bpp: 0.014708
+    debug_full_stream_bpp: 0.019713
+    PSNR delta: +0.5649 dB
+    previous active actual_payload_bpp: 0.014985
+
+  CLIC professional+mobile valid 64:
+    run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_clicval64_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_154209-kxhgrqat
+    detail_payload_bpp: 0.004881
+    actual_payload_bpp: 0.014931
+    debug_full_stream_bpp: 0.019936
+    PSNR delta: +0.5438 dB
+    previous active actual_payload_bpp: 0.015221
+
+b5 quality, d32/b5/r0.25, semantic-position-left g4:
+  Kodak:
+    run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_kodak_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_152133-92lwm3b4
+    detail_payload_bpp: 0.007751
+    actual_payload_bpp: 0.018473
+    debug_full_stream_bpp: 0.023478
+    PSNR delta: +0.3957 dB
+    previous active actual_payload_bpp: 0.018875
+
+  DIV2K first 100:
+    run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_div2k100_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_152426-7u7pb0ua
+    detail_payload_bpp: 0.007965
+    actual_payload_bpp: 0.018390
+    debug_full_stream_bpp: 0.023395
+    PSNR delta: +0.4601 dB
+    previous active actual_payload_bpp: 0.018853
+
+  CLIC professional valid 41:
+    run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_clicpro41_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_152456-qd8fqs38
+    detail_payload_bpp: 0.007351
+    actual_payload_bpp: 0.017257
+    debug_full_stream_bpp: 0.022261
+    PSNR delta: +0.7171 dB
+    previous active actual_payload_bpp: 0.017727
+
+  CLIC professional+mobile valid 64:
+    run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_8192calib_clicval64_eval_compactv3_crc32
+    wandb: wandb/offline-run-20260627_152534-dpm1cmqs
+    detail_payload_bpp: 0.007437
+    actual_payload_bpp: 0.017487
+    debug_full_stream_bpp: 0.022491
+    PSNR delta: +0.6829 dB
+    previous active actual_payload_bpp: 0.017931
+```
+
+Decision update: promote `semantic_position_leftctx_huffman` as the active
+Stage 3 residual payload codec. The b4 and b5 anchors improve all checked
+datasets in `actual_payload_bpp`, preserve identical reconstruction deltas, and
+have zero semantic/detail roundtrip failures.
+
+## Semantic-Position-Left Group-Count Checks
+
+The immediate follow-up checked whether the group counts should change after
+adding the left-detail context.
+
+```text
+b5 g8 diagnostic:
+  run: 20260627_stage3_residual_semposleft_g8_sm0_d32_b5_r025_8192calib_openimages_div2k
+  wandb: wandb/offline-run-20260627_153522-dc1y9y7q
+  mean_huffman_bits_per_symbol: 2.672975
+  actual_payload_bpp:
+    Kodak: 0.018489
+    DIV2K100: 0.018413
+    CLIC professional valid 41: 0.017257
+    CLIC professional+mobile valid 64: 0.017504
+  decision: keep b5 g4 active; g8 has lower calibration bits but worse actual
+            payload mean after byte packing.
+
+b4 g4 vs g8:
+  g4 fit run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_openimages_div2k
+  g4 wandb: wandb/offline-run-20260627_153936-20g6oib6
+  g4 mean_huffman_bits_per_symbol: 1.788819
+  g8 mean_huffman_bits_per_symbol: 1.779746
+  g4 actual_payload_bpp:
+    Kodak: 0.015828
+    DIV2K100: 0.015658
+    CLIC professional valid 41: 0.014708
+    CLIC professional+mobile valid 64: 0.014931
+  g8 actual_payload_bpp:
+    Kodak: 0.015828
+    DIV2K100: 0.015671
+    CLIC professional valid 41: 0.014702
+    CLIC professional+mobile valid 64: 0.014927
+  decision: use b4 g4 as active low-rate anchor because it is simpler and has
+            a marginally lower four-dataset actual payload mean; keep g8 as
+            the CLIC-best candidate.
+```
+
+## Per-Image Metrics Export
+
+Stage 3 evaluation now writes a per-image JSONL next to `summary.json`:
+
+```text
+script:
+  scripts/eval_stage3_uniform_residual_bitstream.py
+
+artifact:
+  per_image_metrics.jsonl
+
+fields:
+  path, payload bytes, actual_payload_bpp, debug_full_stream_bpp,
+  semantic-only/stage3 PSNR, L1, MS-SSIM, roundtrip flags,
+  residual-grid stats, detail code entropy
+```
+
+Smoke run:
+
+```text
+run: 20260627_stage3_per_image_jsonl_smoke_b4_g4_kodak4
+wandb: wandb/offline-run-20260627_154738-qfjpz261
+summary:
+  results/bitstreams/stage3_uniform_residual/20260627_stage3_per_image_jsonl_smoke_b4_g4_kodak4/summary.json
+per-image:
+  results/bitstreams/stage3_uniform_residual/20260627_stage3_per_image_jsonl_smoke_b4_g4_kodak4/per_image_metrics.jsonl
+
+num_records: 4
+roundtrip_failure_count: 0
+actual_payload_bpp_mean: 0.015015
+debug_full_stream_bpp_mean: 0.020020
+```
+
+This is the analysis hook for future per-image winner reports across b4 g4,
+b4 g8, b5 g4, b5 g8, and any revived hybrid selector.
+
+Added helper:
+
+```text
+scripts/compare_stage3_per_image_metrics.py
+tests/test_stage3_compare_metrics.py
+```
+
+## Bitstream Robustness Smoke Tests
+
+Added tests that reject corrupted, truncated, and trailing-byte compact
+CoSERBitstream payloads:
+
+```text
+tests/test_bitstream.py
+  test_compact_bitstream_crc32_checksum_roundtrip_and_corruption
+  test_compact_bitstream_rejects_truncation_and_trailing_bytes
+
+verification:
+  pytest tests/test_bitstream.py -q
+  7 passed
+```
+
+This is not a full adversarial robustness claim. It is the first audit layer for
+the security track: malformed transmitted bytes must fail loudly before any
+semantic/detail decode is trusted.
+
+## Stage 1 LPIPS Fine-Tune Revisit
+
+Decision note:
+
+```text
+docs/research/design_decisions/018_stage1_lpips_finetune_revisit.md
+```
+
+Implementation fix:
+
+```text
+src/coserdic/losses/stage1.py
+  LPIPS branch now runs in fp32 outside CUDA autocast.
+  This fixed NaN gradient norm at step 1 for Stage 1 LPIPS fine-tuning.
+
+scripts/eval_stage1_semantic_bitstream.py
+  Added eval protocols, perceptual metrics, per-image JSONL, and reconstruction export.
+```
+
+Semantic-only CoSER common LIC result:
+
+```text
+active5k fixed_bits:
+  actual_payload_bpp: 0.012695
+  PSNR:               20.918730
+  MS-SSIM:             0.689128
+  LPIPS:               0.700121
+  DISTS:               0.414725
+
+lpips002_ft500 fixed_bits:
+  checkpoint: checkpoints/stage1_semantic_vq/20260627_stage1_active5k_lpips002_fp32loss_ft500.pt
+  actual_payload_bpp: 0.012695
+  PSNR:               20.836227
+  MS-SSIM:             0.690505
+  LPIPS:               0.627592
+  DISTS:               0.391976
+
+per-image wins:
+  LPIPS: 163 / 165
+  DISTS: 152 / 165
+  PSNR:   68 / 165
+```
+
+Short Stage 2/3 reconnection:
+
+```text
+token export:
+  outputs/stage2_semantic_tokens/20260627_stage2_semantic_tokens_4096_oi_div2k_from_stage1_lpips002_ft500_fullroots
+  global_entropy_bits: 12.259037
+
+token prior:
+  checkpoints/stage2_token_prior/20260627_stage2_token_prior_tf256_l4_3kstep_4096tokens_stage1_lpips002_ft500_lr1e4_do02_es.pt
+  best_val_bits_per_token: 11.662687
+  final_val_top64_hit: 0.183194
+
+topk512 escape prior:
+  outputs/stage2_learned_entropy/20260627_stage2_learned_topk512_escape_huffman_fit_4096tokens_stage1_lpips002_ft500_lowlr3k
+  fit mean_payload_bpp_image_size: 0.009382
+  fit topk_hit_rate: 0.795284
+
+residual prior:
+  outputs/stage3_residual_entropy/20260627_stage3_residual_semposleft_g4_sm0_d32_b5_r025_4096calib_stage1_lpips002_ft500
+  mean_huffman_bits_per_symbol: 2.722899
+  mean_residual_abs: 0.021944
+
+b4 residual prior:
+  outputs/stage3_residual_entropy/20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_4096calib_stage1_lpips002_ft500
+  wandb: wandb/offline-run-20260627_182718-7w2wdazq
+  mean_huffman_bits_per_symbol: 1.815659
+  mean_residual_abs: 0.021944
+```
+
+Stage 3 CoSER common LIC comparison:
+
+```text
+active b5 g4 unsharp2:
+  actual_payload_bpp: 0.018370
+  PSNR:               21.344658
+  MS-SSIM:             0.693968
+  LPIPS:               0.679759
+  DISTS:               0.399230
+
+lpips002_ft500 b5 g4 unsharp2:
+  run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_pp_unsharp200_perceptual
+  wandb: wandb/offline-run-20260627_181504-medno1p8
+  actual_payload_bpp: 0.020490
+  semantic_bpp:       0.012453
+  detail_bpp:         0.008037
+  PSNR:               21.269642
+  MS-SSIM:             0.695195
+  LPIPS:               0.592988
+  DISTS:               0.374476
+  semantic_topk_hit:   0.373106
+  roundtrip failures: 0
+
+per-image wins over active b5 g4 unsharp2:
+  LPIPS: 163 / 165
+  DISTS: 155 / 165
+  PSNR:   53 / 165
+  bpp delta: +0.002120
+
+lpips002_ft500 b4 g4 unsharp2:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_pp_unsharp200_perceptual
+  wandb: wandb/offline-run-20260627_182913-5ydqtv8a
+  actual_payload_bpp: 0.017688
+  semantic_bpp:       0.012453
+  detail_bpp:         0.005235
+  PSNR:               21.217353
+  MS-SSIM:             0.694143
+  LPIPS:               0.597244
+  DISTS:               0.374431
+  semantic_topk_hit:   0.373106
+  roundtrip failures: 0
+
+per-image wins over active b5 g4 unsharp2:
+  LPIPS: 163 / 165
+  DISTS: 156 / 165
+  PSNR:   38 / 165
+  bpp delta: -0.000682
+
+lpips002_ft500 b4 g4 none:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_perceptual
+  wandb: wandb/offline-run-20260627_183556-rcs4pamx
+  actual_payload_bpp: 0.017688
+  PSNR:               21.298414
+  MS-SSIM:             0.695166
+  LPIPS:               0.626042
+  DISTS:               0.387196
+
+lpips002_ft500 b4 g4 unsharp0.5:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_pp_unsharp050_perceptual
+  wandb: wandb/offline-run-20260627_184451-35i0i76b
+  actual_payload_bpp: 0.017688
+  PSNR:               21.281879
+  MS-SSIM:             0.694981
+  LPIPS:               0.618435
+  DISTS:               0.383264
+
+lpips002_ft500 b4 g4 unsharp1:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_pp_unsharp100_perceptual
+  wandb: wandb/offline-run-20260627_184232-vcwvwall
+  actual_payload_bpp: 0.017688
+  PSNR:               21.262786
+  MS-SSIM:             0.694748
+  LPIPS:               0.611016
+  DISTS:               0.379559
+```
+
+Reconstruction export + distribution metrics:
+
+```text
+run:
+  20260627_stage3_b5_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_pp_unsharp200_recon_export
+wandb:
+  wandb/offline-run-20260627_182250-i4mmiqjl
+reconstruction_count:
+  165
+
+active b5 g4 unsharp2:
+  image FID / KID:    282.247165 / 0.082436
+  patch128 FID / KID: 222.928785 / 0.107602
+
+lpips002_ft500 semantic-only:
+  image FID / KID:    283.900135 / 0.093163
+  patch128 FID / KID: 227.828590 / 0.105361
+
+lpips002_ft500 b4 g4 none:
+  image FID / KID:    284.082780 / 0.096637
+  patch128 FID / KID: 230.860580 / 0.112192
+
+lpips002_ft500 b4 g4 unsharp1:
+  image FID / KID:    285.469126 / 0.101432
+  patch128 FID / KID: 231.349338 / 0.114421
+
+lpips002_ft500 b4 g4 unsharp2:
+  image FID / KID:    289.087749 / 0.109031
+  patch128 FID / KID: 235.915591 / 0.123656
+
+lpips002_ft500 b5 g4 unsharp2:
+  image FID / KID:    287.180923 / 0.105697
+  patch128 FID / KID: 233.398627 / 0.119745
+```
+
+The LPIPS fine-tuned branch is therefore not a clean replacement: it improves
+LPIPS/DISTS strongly, but distribution metrics currently regress. The most
+likely failure mode is that semantic LPIPS fine-tuning improves local perceptual
+features while the current b5 residual/postprocess path shifts global image
+statistics. Full 32768-token entropy training is still worthwhile, but residual
+gain/range/postprocess must be retuned before promotion.
+
+The new b4 result is stronger for rate-perception than b5: it keeps almost all
+of the LPIPS/DISTS gain, reduces actual payload bpp below active b5 unsharp2,
+and still roundtrips exactly. It should be treated as a serious perceptual
+low-bitrate candidate, while active b4 remains the lower-rate RD anchor. The
+postprocess/no-postprocess split shows a useful tradeoff: unsharp2 improves
+LPIPS/DISTS, but worsens FID/KID; no postprocess keeps better PSNR/MS-SSIM and
+less severe distribution drift. The b4 sweep is monotonic: stronger unsharp
+improves LPIPS/DISTS while worsening PSNR/MS-SSIM/FID/KID. Current recommended
+reporting split is b4 none for faithfulness-leaning perceptual, b4 unsharp1 for
+balanced perception, and b4 unsharp2 for LPIPS/DISTS-first.
+
+Interpretation:
+
+```text
+LPIPS Stage 1 fine-tuning is a strong high-perception branch but not a default
+low-rate replacement yet. It improves perceptual quality substantially while
+raising semantic payload bpp and lowering semantic top-k hit rate on the common
+eval. Next full check is 32768-token export + 8k low-LR token prior before
+deciding whether the entropy gap is intrinsic or undertrained.
+```
+
+## RDVQ-Inspired Stage 1 Rate-Prior Follow-Up
+
+I rechecked Stage 1 against the official-implementation reference policy. The
+Stage 1 code was too self-contained to answer the user's concern cleanly, so I
+added a minimal RDVQ-style option without importing an external codec:
+
+```text
+src/coserdic/models/semantic_vq.py:
+  optional VQ assignment probabilities
+
+scripts/train_stage1_semantic_vq.py:
+  frozen token-prior soft CE in bits
+  --freeze-codebook
+  --force-fp32
+
+tests:
+  tests/test_semantic_vq.py covers the optional assignment-probability path
+```
+
+Validation:
+
+```text
+py_compile:
+  src/coserdic/models/semantic_vq.py
+  scripts/train_stage1_semantic_vq.py
+
+pytest:
+  tests/test_semantic_vq.py
+  tests/test_token_prior.py
+  tests/test_bitstream.py
+  tests/test_eval_protocols.py
+
+result:
+  17 passed
+```
+
+Rejected aggressive probe:
+
+```text
+run:
+  20260627_stage1_lpips002_rateprior001_tau01_freezecodebook_ft500
+wandb:
+  wandb/offline-run-20260627_222815-16m1teiz
+checkpoint:
+  checkpoints/stage1_semantic_vq/20260627_stage1_lpips002_rateprior001_tau01_freezecodebook_ft500.pt
+reason:
+  accidentally used --loss-vq 1.0 instead of the ft500 branch's 0.05.
+semantic-only CoSER common:
+  actual_payload_bpp: 0.012695
+  PSNR / MS-SSIM: 20.029750 / 0.618641
+  LPIPS / DISTS:  0.723929 / 0.438140
+```
+
+Accepted conservative probe:
+
+```text
+run:
+  20260627_stage1_lpips002_rateprior0005_tau01_vq005_freezecodebook_ft500
+wandb:
+  wandb/offline-run-20260627_223031-lgqjdte7
+checkpoint:
+  checkpoints/stage1_semantic_vq/20260627_stage1_lpips002_rateprior0005_tau01_vq005_freezecodebook_ft500.pt
+settings:
+  ft500 init, 500 steps, lr=2e-6
+  lpips_sem=0.02
+  vq=0.05
+  codebook_usage=0.005
+  rate_prior=0.0005
+  tau=0.1
+  frozen codebook, FP32
+
+semantic-only CoSER common:
+  wandb: wandb/offline-run-20260627_223114-pg2j9vqi
+  actual_payload_bpp: 0.012695
+  PSNR / MS-SSIM: 20.858840 / 0.691136
+  LPIPS / DISTS:  0.615189 / 0.387139
+
+delta vs ft500 semantic-only:
+  PSNR:   +0.022613
+  MS-SSIM:+0.000632
+  LPIPS:  -0.012403
+  DISTS:  -0.004836
+```
+
+4096-token entropy reconnection:
+
+```text
+token export:
+  run: 20260627_stage2_semantic_tokens_4096_oi_div2k_from_stage1_rateprior0005_tau01_vq005_ft500_fullroots
+  wandb: wandb/offline-run-20260627_223223-8kd3wkgd
+  active_codes: 7877
+  global_entropy_bits: 12.245404
+  ft500 baseline entropy: 12.259037
+
+32768-token export:
+  run: 20260627_stage2_semantic_tokens_32768_oi_div2k_from_stage1_rateprior0005_tau01_vq005_ft500_fullroots
+  wandb: wandb/offline-run-20260627_230659-vvdu9yvx
+  active_codes: 8126
+  global_entropy_bits: 12.268169
+  ft500 baseline active_codes: 8125
+  ft500 baseline entropy: 12.281880
+  delta: -0.013711 bits/token
+
+d256/l4 prior:
+  run: 20260627_stage2_token_prior_tf256_l4_3kstep_4096tokens_stage1_rateprior0005_tau01_vq005_ft500_lr1e4_do02_es
+  wandb: wandb/offline-run-20260627_223244-6w1w62yi
+  best_val_bits/token: 11.624005
+  ft500 baseline:      11.662687
+```
+
+Top-k sweep, same 4096-token d256/l4 prior:
+
+```text
+topk512:
+  fit wandb: wandb/offline-run-20260627_223806-c8ibcby4
+  calibration payload bpp: 0.009348
+  CoSER Stage 3 semantic bpp: 0.012370
+  CoSER Stage 3 total bpp:    0.017609
+
+topk1024:
+  fit wandb: wandb/offline-run-20260627_225821-9ee54ekx
+  calibration payload bpp: 0.009176
+  CoSER Stage 3 semantic bpp: 0.012538
+  CoSER Stage 3 total bpp:    0.017778
+
+topk2048:
+  fit wandb: wandb/offline-run-20260627_225241-eu03mcxp
+  calibration payload bpp: 0.009100
+  CoSER Stage 3 semantic bpp: 0.012557
+  CoSER Stage 3 total bpp:    0.017796
+```
+
+Reading: larger top-k improves hit rate but worsens actual payload on CoSER
+common for this short prior because rank-event coding gets too expensive.
+Use topk512 for this branch until a stronger token prior is trained.
+
+Stage 3 b4 result:
+
+```text
+candidate none:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_rateprior0005_tau01_vq005_ft500_perceptual
+  wandb: wandb/offline-run-20260627_224419-2tlzhfyu
+  actual_payload_bpp: 0.017609
+  semantic/detail bpp: 0.012370 / 0.005239
+  PSNR / MS-SSIM: 21.283043 / 0.695464
+  LPIPS / DISTS:  0.614341 / 0.383102
+  roundtrip: semantic and detail OK
+
+candidate unsharp2:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_rateprior0005_tau01_vq005_ft500_pp_unsharp200_perceptual
+  wandb: wandb/offline-run-20260627_224618-e2lv8gz3
+  actual_payload_bpp: 0.017609
+  PSNR / MS-SSIM: 21.187439 / 0.694023
+  LPIPS / DISTS:  0.584765 / 0.372274
+  roundtrip: semantic and detail OK
+
+candidate 8192 residual calibration:
+  prior run: 20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_stage1_rateprior0005_tau01_vq005_ft500
+  prior wandb: wandb/offline-run-20260627_231030-er8nwp6l
+  mean_huffman_bits_per_symbol: 1.818209
+
+candidate topk512 b4 8192resid none:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_rateprior0005_tau01_vq005_ft500_topk512_8192resid_perceptual
+  wandb: wandb/offline-run-20260627_231226-07h66uq0
+  actual_payload_bpp: 0.017592
+  semantic/detail bpp: 0.012370 / 0.005222
+  PSNR / MS-SSIM: 21.283043 / 0.695464
+  LPIPS / DISTS:  0.614341 / 0.383102
+
+candidate topk512 b4 8192resid unsharp2:
+  run: 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_rateprior0005_tau01_vq005_ft500_topk512_8192resid_pp_unsharp200_perceptual
+  wandb: wandb/offline-run-20260627_231426-84wb9jan
+  actual_payload_bpp: 0.017592
+  PSNR / MS-SSIM: 21.187439 / 0.694023
+  LPIPS / DISTS:  0.584765 / 0.372274
+```
+
+Per-image wins versus ft500 b4:
+
+```text
+none:
+  LPIPS: 156 / 165
+  DISTS: 130 / 165
+  PSNR:   67 / 165
+  mean actual_payload_bpp delta: -0.000078
+
+unsharp2:
+  LPIPS: 154 / 165
+  DISTS: 111 / 165
+  PSNR:   55 / 165
+  mean actual_payload_bpp delta: -0.000078
+```
+
+Decision:
+
+```text
+This rate-prior Stage 1 fine-tune is a promising perceptual branch and should
+be continued. It beats the baseline ft500 topk512 branch on bpp and
+LPIPS/DISTS, but it does not yet beat the stronger ft500 d384/l6 topk2048
+entropy setting:
+
+  ft500 d384/l6 topk2048 b4 none:
+    actual_payload_bpp: 0.015850
+    semantic/detail bpp: 0.010627 / 0.005223
+
+Next promotion run:
+  export 32768 candidate tokens, train a d384/l6 token prior, fit topk512 and
+  topk2048, then re-run Stage 3 b4 and distribution metrics.
+  The 32768 candidate token export is now complete.
+```
+
+Candidate recon export and distribution metrics:
+
+```text
+run: 20260627_stage3_b4_rateprior0005_topk512_8192resid_unsharp200_coser_common_recon_export
+wandb: wandb/offline-run-20260627_232113-4ij10w5p
+reconstruction manifest:
+  results/bitstreams/stage3_uniform_residual/20260627_stage3_b4_rateprior0005_topk512_8192resid_unsharp200_coser_common_recon_export/reconstructions/manifest.jsonl
+
+actual_payload_bpp: 0.017593
+PSNR / MS-SSIM: 21.187342 / 0.694029
+LPIPS / DISTS:  0.584753 / 0.372268
+roundtrip failures: 0
+
+image FID / KID:             295.411969 / 0.118759
+patch128 stride128 FID / KID: 243.197491 / 0.129927
+patches: 660
+```
+
+Distribution metrics do not promote this candidate over the current ft500
+d384/l6 topk2048 family, but they preserve the useful signal that the
+rate-aware Stage 1 improves LPIPS/DISTS on most images. The next fair test is
+therefore a matching d384/l6 32768-token token-prior run.
+
+Summary artifact:
+
+```text
+results/analysis/stage1_lpips_ft/20260627_rateprior0005_tau01_vq005_stage1_stage3_summary.json
+```
+
+Next long-run runbook:
+
+```text
+docs/research/019_rateprior0005_next_long_runs.md
+```

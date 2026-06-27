@@ -13,9 +13,18 @@ Read in this order:
 7. `design_decisions/007_stage3_uniform_residual_bootstrap.md`
 8. `design_decisions/008_compact_v3_actual_bitstream_container.md`
 9. `design_decisions/009_stage3_semantic_conditioned_residual_huffman.md`
-10. `core_mvp_literature_update_2026-06-27.md`
-11. `baseline_registry.md`
-12. `baselines/external_repo_status_mvp.md`
+10. `design_decisions/010_bpp_reporting_policy.md`
+11. `design_decisions/011_stage3_semantic_left_context_residual_huffman.md`
+12. `design_decisions/012_evaluation_protocol_alignment.md`
+13. `design_decisions/013_stage3_protocol_perceptual_evaluation.md`
+14. `design_decisions/014_stage3_reconstruction_distribution_metrics.md`
+15. `design_decisions/015_stage3_fixed_detail_gain_sweep.md`
+16. `design_decisions/016_deterministic_actual_bpp_evaluation.md`
+17. `design_decisions/017_stage3_fixed_decoder_unsharp_postprocess.md`
+18. `design_decisions/018_stage1_lpips_finetune_revisit.md`
+19. `core_mvp_literature_update_2026-06-27.md`
+20. `baseline_registry.md`
+21. `baselines/external_repo_status_mvp.md`
 
 Broad literature notes that are not part of the active Core MVP execution path
 live in `archive/`.

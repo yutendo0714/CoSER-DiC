@@ -30,6 +30,11 @@ def test_bitstream_roundtrip_and_bpp() -> None:
     assert unpacked.semantic_tokens == b"tokens"
     assert unpacked.detail_latents == b"latents"
     assert coder.actual_bpp(stream, 32, 16) == 8.0 * len(stream) / (32 * 16)
+    assert coder.debug_full_stream_bpp(stream, 32, 16) == 8.0 * len(stream) / (32 * 16)
+    assert coder.actual_payload_bpp((b"sh", b"tokens", b"dh", b"latents"), 32, 16) == (
+        8.0 * (2 + 6 + 2 + 7) / (32 * 16)
+    )
+    assert coder.actual_payload_bpp(b"tokens", 32, 16) == 8.0 * 6 / (32 * 16)
 
 
 def test_bitstream_checksum_rejects_corruption() -> None:
@@ -153,6 +158,39 @@ def test_compact_bitstream_crc32_checksum_roundtrip_and_corruption() -> None:
         assert "checksum" in str(exc)
     else:
         raise AssertionError("corrupted crc32 stream should fail")
+
+
+def test_compact_bitstream_rejects_truncation_and_trailing_bytes() -> None:
+    coder = CoSERBitstream(header_codec="compact", checksum_codec="crc32")
+    header = CoSERHeader(
+        codec_version="s3urg0",
+        image_height=16,
+        image_width=16,
+        padded_height=16,
+        padded_width=16,
+        color_space="RGB",
+        rate_level_id=0,
+        perception_level_id=0,
+        semantic_shape=(2, 2),
+        detail_shape=(1, 2, 2),
+        entropy_model_version="s3urg-d32-b4-r025",
+        cdf_precision=0,
+    )
+    stream = coder.pack(header, semantic_tokens=b"abcd", detail_latents=b"efgh")
+
+    try:
+        coder.unpack(stream[:-1])
+    except ValueError as exc:
+        assert "truncated" in str(exc) or "checksum" in str(exc)
+    else:
+        raise AssertionError("truncated compact stream should fail")
+
+    try:
+        coder.unpack(stream + b"x")
+    except ValueError as exc:
+        assert "trailing bytes" in str(exc)
+    else:
+        raise AssertionError("compact stream with trailing bytes should fail")
 
 
 def test_compact_v3_header_is_smaller_and_decodes_v2() -> None:

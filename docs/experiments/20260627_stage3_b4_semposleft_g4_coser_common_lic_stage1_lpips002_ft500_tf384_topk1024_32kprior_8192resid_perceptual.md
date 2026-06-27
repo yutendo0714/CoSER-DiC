@@ -1,0 +1,87 @@
+# 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk1024_32kprior_8192resid_perceptual
+
+Date: 2026-06-27T20:38:03
+
+## Command
+
+```bash
+/workspace/CoSER-DiC/.venv/bin/python scripts/eval_stage3_uniform_residual_bitstream.py --checkpoint checkpoints/stage1_semantic_vq/20260627_stage1_active5k_lpips002_fp32loss_ft500.pt --semantic-prior outputs/stage2_learned_entropy/20260627_stage2_learned_topk1024_escape_huffman_fit_32768tokens_stage1_lpips002_ft500_tf384_l6_12k/learned_topk_escape_huffman_prior.json --token-prior-checkpoint checkpoints/stage2_token_prior/20260627_stage2_token_prior_tf384_l6_12kstep_32768tokens_stage1_lpips002_ft500_lr1e4_do02_es.pt --detail-prior outputs/stage3_residual_entropy/20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_stage1_lpips002_ft500/static_residual_grid_semantic_position_leftctx_huffman_prior.json --eval-protocol coser_common_lic --detail-codec semantic_position_leftctx_huffman --detail-downsample-factor 32 --detail-bits 4 --detail-range 0.25 --stream-header-codec compact --stream-checksum-codec crc32 --compute-perceptual --wandb-mode offline --run-name 20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk1024_32kprior_8192resid_perceptual
+```
+
+## Summary
+
+- checkpoint: checkpoints/stage1_semantic_vq/20260627_stage1_active5k_lpips002_fp32loss_ft500.pt
+- semantic_prior: outputs/stage2_learned_entropy/20260627_stage2_learned_topk1024_escape_huffman_fit_32768tokens_stage1_lpips002_ft500_tf384_l6_12k/learned_topk_escape_huffman_prior.json
+- detail_prior: outputs/stage3_residual_entropy/20260627_stage3_residual_semposleft_g4_sm0_d32_b4_r025_8192calib_stage1_lpips002_ft500/static_residual_grid_semantic_position_leftctx_huffman_prior.json
+- token_prior_checkpoint: checkpoints/stage2_token_prior/20260627_stage2_token_prior_tf384_l6_12kstep_32768tokens_stage1_lpips002_ft500_lr1e4_do02_es.pt
+- num_images: 165
+- crop_size: 256
+- semantic_topk: 1024
+- detail_downsample_factor: 32
+- detail_shape: [3, 8, 8]
+- detail_bits: 4
+- detail_range: 0.25
+- detail_gain: 1.0
+- decoder_postprocess: none
+- decoder_postprocess_strength: 0.0
+- detail_codec: semantic_position_leftctx_huffman
+- stream_header_codec: compact
+- stream_checksum_codec: crc32
+- main_bpp_metric: actual_payload_bpp_mean
+- paper_bpp_metric: paper_bpp_mean
+- debug_bpp_metric: debug_full_stream_bpp_mean
+- eval_protocol: coser_common_lic
+- eval_datasets: []
+- eval_image_roots: ['/dpl/kodak', '/dpl/clic/professional/valid', '/dpl/div2k']
+- eval_protocol_summary: {'name': 'coser_common_lic', 'display_name': 'CoSER common LIC protocol', 'dataset_keys': ['kodak', 'clic_professional_valid', 'div2k_val'], 'dataset_counts': {'kodak': 24, 'clic_professional_valid': 41, 'div2k_val': 100}, 'expected_counts': {'kodak': 24, 'clic_professional_valid': 41, 'div2k_val': 100}, 'count_status': {'kodak': 'ok', 'clic_professional_valid': 'ok', 'div2k_val': 'ok'}, 'total_images': 165, 'primary_metrics': ['PSNR', 'MS-SSIM', 'LPIPS', 'DISTS', 'FID/KID when sample handling is defined'], 'bpp_metric': 'actual_payload_bpp', 'default_crop_size': None, 'notes': ['Internal CoSER LIC protocol for Kodak 24, CLIC Professional Validation 41, and DIV2K validation 100.', 'Do not merge this table with CLIC2020 test 428 comparisons.'], 'datasets': [{'key': 'kodak', 'display_name': 'Kodak 24', 'count': 24, 'expected_count': 24, 'status': 'ok', 'source_roots': ['/dpl/kodak'], 'first_path': '/dpl/kodak/kodim01.png', 'last_path': '/dpl/kodak/kodim24.png', 'notes': []}, {'key': 'clic_professional_valid', 'display_name': 'CLIC Professional Validation 41', 'count': 41, 'expected_count': 41, 'status': 'ok', 'source_roots': ['/dpl/clic/professional/valid'], 'first_path': '/dpl/clic/professional/valid/alberto-montalesi-176097.png', 'last_path': '/dpl/clic/professional/valid/zugr-108.png', 'notes': []}, {'key': 'div2k_val', 'display_name': 'DIV2K validation 100', 'count': 100, 'expected_count': 100, 'status': 'ok', 'source_roots': ['/dpl/div2k'], 'first_path': '/dpl/div2k/0801.png', 'last_path': '/dpl/div2k/0900.png', 'notes': ['Resolved by filename indices 0801-0900 from a mixed DIV2K root.']}]}
+- deterministic_eval: True
+- compute_perceptual: True
+- save_reconstructions: False
+- save_reconstruction_limit: 0
+- save_reconstruction_triptychs: False
+- residual_code: {'codec': 'static_residual_grid_semantic_position_leftctx_huffman', 'version': 0, 'bits': 4, 'value_range': 0.25, 'payload_codec': 'semantic_position_leftctx_huffman', 'detail_shape': [3, 8, 8], 'semantic_shape': [8, 8], 'group_count': 4, 'left_context_mode': 'start_left_sign4', 'left_context_count': 4, 'num_position_group_context_codes': 3072, 'min_code_length': 1, 'max_code_length': 14, 'mean_code_length_unweighted': 6.48956298828125}
+- semantic_payload_bpp_mean: 0.010761422821969697
+- detail_payload_bpp_mean: 0.005223129734848485
+- actual_payload_bpp_mean: 0.01598455255681818
+- paper_bpp_mean: 0.01598455255681818
+- total_payload_bpp_mean: 0.01598455255681818
+- debug_semantic_only_full_stream_bpp_mean: 0.015522165009469697
+- debug_full_stream_bpp_mean: 0.02098943536931818
+- semantic_only_full_stream_bpp_mean: 0.015522165009469697
+- stage3_full_stream_bpp_mean: 0.02098943536931818
+- semantic_payload_bytes_mean: 88.15757575757576
+- detail_payload_bytes_mean: 42.78787878787879
+- stage3_stream_bytes_mean: 171.94545454545454
+- semantic_only_psnr_mean: 20.836226937265106
+- semantic_only_l1_mean: 0.06787524664718093
+- semantic_only_ms_ssim_mean: 0.6905045213121357
+- stage3_psnr_mean: 21.2984135425452
+- stage3_l1_mean: 0.0651561143497626
+- stage3_ms_ssim_mean: 0.6951660660180179
+- semantic_topk_hit_rate_mean: 0.7321022727272727
+- semantic_token_roundtrip_mean: 1.0
+- detail_code_roundtrip_mean: 1.0
+- residual_grid_abs_mean_mean: 0.021183302899766148
+- residual_grid_std_mean: 0.025643822883791995
+- residual_grid_clip_ratio_mean: 0.0
+- detail_code_entropy_bits_mean: 1.678583245566397
+- semantic_only_lpips_alex_mean: 0.6275915798702927
+- semantic_only_dists_mean: 0.3919758865327546
+- stage3_lpips_alex_mean: 0.6260419001972134
+- stage3_dists_mean: 0.3871962532852635
+- stage3_psnr_delta_vs_semantic_only: 0.46218660528009536
+- stage3_l1_delta_vs_semantic_only: -0.002719132297418339
+- stage3_ms_ssim_delta_vs_semantic_only: 0.0046615447058822035
+- stage3_lpips_alex_delta_vs_semantic_only: -0.001549679673079285
+- stage3_dists_delta_vs_semantic_only: -0.0047796332474910885
+- all_semantic_tokens_roundtrip: True
+- all_detail_codes_roundtrip: True
+- roundtrip_failure_count: 0
+- roundtrip_failures: []
+- per_image_metrics: results/bitstreams/stage3_uniform_residual/20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk1024_32kprior_8192resid_perceptual/per_image_metrics.jsonl
+
+## Artifacts
+
+- summary: `results/bitstreams/stage3_uniform_residual/20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk1024_32kprior_8192resid_perceptual/summary.json`
+- per_image_metrics: `results/bitstreams/stage3_uniform_residual/20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk1024_32kprior_8192resid_perceptual/per_image_metrics.jsonl`
+- sample: `results/bitstreams/stage3_uniform_residual/20260627_stage3_b4_semposleft_g4_coser_common_lic_stage1_lpips002_ft500_tf384_topk1024_32kprior_8192resid_perceptual/stage3_uniform_residual_grid.png`

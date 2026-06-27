@@ -54,8 +54,11 @@ loss:
   # a stable perceptual/SSIM surrogate is introduced.
   ms_ssim_sem: 0.0
   # LPIPS is useful as a perceptual metric/ablation, but it introduced
-  # occasional non-finite gradients in hard-VQ Stage 1 probes. Keep the Core
-  # MVP semantic tokenizer baseline L1-driven unless explicitly overridden.
+  # occasional non-finite gradients in hard-VQ Stage 1 probes when evaluated
+  # under mixed precision. The loss implementation now keeps LPIPS in fp32, and
+  # low-LR fine-tuning from the active checkpoint is a tracked perceptual branch
+  # (`018_stage1_lpips_finetune_revisit.md`). Keep the Core MVP semantic
+  # tokenizer baseline L1-driven unless explicitly overridden.
   lpips_sem: 0.0
   vq: 1.0
   vq_commitment: 0.25

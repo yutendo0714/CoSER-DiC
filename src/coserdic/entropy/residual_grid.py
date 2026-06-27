@@ -86,6 +86,15 @@ def _decode_huffman_values_from_bits(
     return decoded
 
 
+def _left_sign_context_id(value: int, levels: int) -> int:
+    zero_code = int(round(float(levels - 1) / 2.0))
+    if int(value) < zero_code:
+        return 1
+    if int(value) == zero_code:
+        return 2
+    return 3
+
+
 @dataclass(frozen=True)
 class UniformResidualGridCode:
     """Uniform quantized residual-grid payload for Stage 3 bootstrapping.
@@ -618,6 +627,269 @@ class StaticResidualGridSemanticPositionHuffmanCode:
             "group_count": int(self.group_count),
             "token_to_group": [int(v) for v in self.token_to_group],
             "position_group_code_lengths": [list(code.code_lengths) for code in self.position_group_codes],
+        }
+
+
+@dataclass(frozen=True)
+class StaticResidualGridSemanticPositionLeftContextHuffmanCode:
+    """Semantic/position Huffman code with a causal left-detail context.
+
+    The left context is decoder-known because detail residual symbols are decoded
+    in channel-major raster order. Context ids are:
+    0 = row start, 1 = left residual code below zero, 2 = near-zero code,
+    3 = left residual code above zero.
+    """
+
+    quantizer: UniformResidualGridCode
+    detail_shape: tuple[int, int, int]
+    semantic_shape: tuple[int, int]
+    token_to_group: tuple[int, ...]
+    group_count: int
+    left_context_count: int
+    position_group_context_codes: tuple[StaticHuffmanCode, ...]
+
+    @classmethod
+    def from_counts(
+        cls,
+        counts: torch.Tensor,
+        *,
+        bits: int,
+        value_range: float,
+        semantic_shape: tuple[int, int],
+        token_to_group: list[int] | tuple[int, ...],
+        smoothing_count: int = 1,
+    ) -> StaticResidualGridSemanticPositionLeftContextHuffmanCode:
+        quantizer = UniformResidualGridCode(bits=bits, value_range=value_range, codec="huffman")
+        values = torch.as_tensor(counts)
+        if values.ndim != 6:
+            raise ValueError("counts must have shape [C, H, W, G, L, 2 ** bits]")
+        c, h, w, g, l, k = (int(v) for v in values.shape)
+        if k != quantizer.levels:
+            raise ValueError("counts last dimension must be 2 ** bits")
+        if g <= 0:
+            raise ValueError("semantic group count must be positive")
+        if l != 4:
+            raise ValueError("left context count must be 4 for start/sign context")
+        mapping = tuple(int(v) for v in token_to_group)
+        if not mapping:
+            raise ValueError("token_to_group must be non-empty")
+        if min(mapping) < 0 or max(mapping) >= g:
+            raise ValueError("token_to_group values must be in [0, group_count)")
+        codes = []
+        uniform_fallback = torch.ones(quantizer.levels, dtype=torch.float64)
+        for channel in range(c):
+            for y in range(h):
+                for x in range(w):
+                    for group in range(g):
+                        for left_context in range(l):
+                            context_counts = values[channel, y, x, group, left_context]
+                            if float(context_counts.sum().item()) <= 0.0:
+                                codes.append(StaticHuffmanCode.from_counts(uniform_fallback, smoothing_count=0))
+                            else:
+                                codes.append(
+                                    StaticHuffmanCode.from_counts(
+                                        context_counts,
+                                        smoothing_count=smoothing_count,
+                                    )
+                                )
+        return cls(
+            quantizer=quantizer,
+            detail_shape=(c, h, w),
+            semantic_shape=(int(semantic_shape[0]), int(semantic_shape[1])),
+            token_to_group=mapping,
+            group_count=g,
+            left_context_count=l,
+            position_group_context_codes=tuple(codes),
+        )
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> StaticResidualGridSemanticPositionLeftContextHuffmanCode:
+        if payload.get("codec") != "static_residual_grid_semantic_position_leftctx_huffman":
+            raise ValueError("payload codec must be static_residual_grid_semantic_position_leftctx_huffman")
+        quantizer = UniformResidualGridCode(
+            bits=int(payload["bits"]),
+            value_range=float(payload["value_range"]),
+            codec="huffman",
+        )
+        detail_shape_raw = payload.get("detail_shape")
+        semantic_shape_raw = payload.get("semantic_shape")
+        token_to_group_raw = payload.get("token_to_group")
+        code_lengths_raw = payload.get("position_group_context_code_lengths")
+        if not isinstance(detail_shape_raw, list) or len(detail_shape_raw) != 3:
+            raise TypeError("payload must contain detail_shape=[C, H, W]")
+        if not isinstance(semantic_shape_raw, list) or len(semantic_shape_raw) != 2:
+            raise TypeError("payload must contain semantic_shape=[H, W]")
+        if not isinstance(token_to_group_raw, list):
+            raise TypeError("payload must contain token_to_group list")
+        if not isinstance(code_lengths_raw, list):
+            raise TypeError("payload must contain position_group_context_code_lengths list")
+        detail_shape = tuple(int(v) for v in detail_shape_raw)
+        semantic_shape = (int(semantic_shape_raw[0]), int(semantic_shape_raw[1]))
+        group_count = int(payload["group_count"])
+        left_context_count = int(payload.get("left_context_count", 4))
+        if left_context_count != 4:
+            raise ValueError("left_context_count must be 4")
+        expected_codes = detail_shape[0] * detail_shape[1] * detail_shape[2] * group_count * left_context_count
+        if len(code_lengths_raw) != expected_codes:
+            raise ValueError("position_group_context_code_lengths length does not match detail_shape/group/context count")
+        mapping = tuple(int(v) for v in token_to_group_raw)
+        if not mapping:
+            raise ValueError("token_to_group must be non-empty")
+        if min(mapping) < 0 or max(mapping) >= group_count:
+            raise ValueError("token_to_group values must be in [0, group_count)")
+        position_group_context_codes = tuple(
+            StaticHuffmanCode.from_code_lengths([int(v) for v in lengths])
+            for lengths in code_lengths_raw
+        )
+        if any(code.codebook_size != quantizer.levels for code in position_group_context_codes):
+            raise ValueError("all position/group/context codes must match residual levels")
+        return cls(
+            quantizer=quantizer,
+            detail_shape=detail_shape,
+            semantic_shape=semantic_shape,
+            token_to_group=mapping,
+            group_count=group_count,
+            left_context_count=left_context_count,
+            position_group_context_codes=position_group_context_codes,
+        )
+
+    @property
+    def bits(self) -> int:
+        return int(self.quantizer.bits)
+
+    @property
+    def value_range(self) -> float:
+        return float(self.quantizer.value_range)
+
+    @property
+    def levels(self) -> int:
+        return int(self.quantizer.levels)
+
+    def quantize(self, residual_grid: torch.Tensor) -> torch.Tensor:
+        return self.quantizer.quantize(residual_grid)
+
+    def dequantize(self, codes: torch.Tensor) -> torch.Tensor:
+        return self.quantizer.dequantize(codes)
+
+    def _semantic_groups_for_detail(self, semantic_indices: torch.Tensor) -> torch.Tensor:
+        values = semantic_indices.detach().cpu().to(torch.long)
+        if tuple(values.shape) != self.semantic_shape:
+            raise ValueError(f"semantic_indices shape {tuple(values.shape)} does not match {self.semantic_shape}")
+        min_token = int(values.min().item())
+        max_token = int(values.max().item())
+        if min_token < 0 or max_token >= len(self.token_to_group):
+            raise ValueError("semantic token out of token_to_group range")
+        group_lookup = torch.tensor(self.token_to_group, dtype=torch.long)
+        semantic_groups = group_lookup[values]
+        _, detail_h, detail_w = self.detail_shape
+        if (detail_h, detail_w) == self.semantic_shape:
+            return semantic_groups
+        y_index = torch.div(torch.arange(detail_h) * self.semantic_shape[0], detail_h, rounding_mode="floor")
+        x_index = torch.div(torch.arange(detail_w) * self.semantic_shape[1], detail_w, rounding_mode="floor")
+        return semantic_groups[y_index][:, x_index]
+
+    def _codebook_index(self, channel: int, y: int, x: int, group: int, left_context: int) -> int:
+        _, h, w = self.detail_shape
+        return (
+            ((((int(channel) * h + int(y)) * w + int(x)) * self.group_count + int(group))
+             * self.left_context_count)
+            + int(left_context)
+        )
+
+    def _flatten_codes_and_contexts(self, codes: torch.Tensor, semantic_indices: torch.Tensor) -> tuple[list[int], list[int]]:
+        values = codes.detach().cpu().to(torch.long)
+        if tuple(values.shape) != self.detail_shape:
+            raise ValueError(f"codes shape {tuple(values.shape)} does not match detail_shape {self.detail_shape}")
+        if values.numel() == 0:
+            raise ValueError("codes must be non-empty")
+        min_value = int(values.min().item())
+        max_value = int(values.max().item())
+        if min_value < 0 or max_value >= self.levels:
+            raise ValueError(f"residual code out of range: min={min_value}, max={max_value}, levels={self.levels}")
+        semantic_groups = self._semantic_groups_for_detail(semantic_indices)
+        flattened_values: list[int] = []
+        codebook_indices: list[int] = []
+        c, h, w = self.detail_shape
+        for channel in range(c):
+            for y in range(h):
+                for x in range(w):
+                    group = int(semantic_groups[y, x].item())
+                    if x == 0:
+                        left_context = 0
+                    else:
+                        left_context = _left_sign_context_id(int(values[channel, y, x - 1].item()), self.levels)
+                    flattened_values.append(int(values[channel, y, x].item()))
+                    codebook_indices.append(self._codebook_index(channel, y, x, group, left_context))
+        return flattened_values, codebook_indices
+
+    def encode(self, codes: torch.Tensor, *, semantic_indices: torch.Tensor) -> bytes:
+        values, codebook_indices = self._flatten_codes_and_contexts(codes, semantic_indices)
+        codebooks = [self.position_group_context_codes[index] for index in codebook_indices]
+        return _pack_huffman_values(values, codebooks)
+
+    def decode(self, payload: bytes, *, shape: tuple[int, ...], semantic_indices: torch.Tensor) -> torch.Tensor:
+        if tuple(shape) != self.detail_shape:
+            raise ValueError(f"shape {shape} does not match detail_shape {self.detail_shape}")
+        semantic_groups = self._semantic_groups_for_detail(semantic_indices)
+        bit_values = _payload_bits(payload)
+        offset = 0
+        decoded: list[int] = []
+        c, h, w = self.detail_shape
+        for channel in range(c):
+            for y in range(h):
+                for x in range(w):
+                    group = int(semantic_groups[y, x].item())
+                    if x == 0:
+                        left_context = 0
+                    else:
+                        left_context = _left_sign_context_id(decoded[-1], self.levels)
+                    codebook = self.position_group_context_codes[
+                        self._codebook_index(channel, y, x, group, left_context)
+                    ]
+                    table = codebook._decode_table()
+                    max_len = max(codebook.code_lengths)
+                    acc = 0
+                    matched = False
+                    for length in range(1, max_len + 1):
+                        if offset + length > len(bit_values):
+                            break
+                        acc = (acc << 1) | bit_values[offset + length - 1]
+                        symbol = table.get((length, acc))
+                        if symbol is None:
+                            continue
+                        decoded.append(symbol)
+                        offset += length
+                        matched = True
+                        break
+                    if not matched:
+                        raise ValueError(f"could not decode semantic-leftctx residual symbol {len(decoded)}")
+        if any(bit_values[offset:]):
+            raise ValueError("non-zero padding bits in semantic-leftctx residual Huffman payload")
+        return torch.tensor(decoded, dtype=torch.long).reshape(self.detail_shape)
+
+    def encoded_bits(self, codes: torch.Tensor, *, semantic_indices: torch.Tensor) -> int:
+        values, codebook_indices = self._flatten_codes_and_contexts(codes, semantic_indices)
+        return sum(
+            self.position_group_context_codes[index].code_lengths[value]
+            for value, index in zip(values, codebook_indices)
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "codec": "static_residual_grid_semantic_position_leftctx_huffman",
+            "version": 0,
+            "bits": int(self.bits),
+            "value_range": float(self.value_range),
+            "payload_codec": "semantic_position_leftctx_huffman",
+            "detail_shape": list(self.detail_shape),
+            "semantic_shape": list(self.semantic_shape),
+            "group_count": int(self.group_count),
+            "token_to_group": [int(v) for v in self.token_to_group],
+            "left_context_mode": "start_left_sign4",
+            "left_context_count": int(self.left_context_count),
+            "position_group_context_code_lengths": [
+                list(code.code_lengths) for code in self.position_group_context_codes
+            ],
         }
 
 

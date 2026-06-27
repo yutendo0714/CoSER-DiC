@@ -4,6 +4,11 @@ Date: 2026-06-27
 Status: Stage 3 actual-bitstream bootstrap baseline with static residual entropy coding  
 Parent policy: `docs/research/design_decisions/003_official_implementation_reference_policy.md`
 
+Update: the fixed residual-grid bootstrap remains active, but the active
+entropy anchor is now the semantic-position-left Huffman codec from Decision
+011. Older hybrid position/semantic-position anchors in this document are
+historical baselines.
+
 ## Purpose
 
 Stage 2 now has an active learned semantic-token stream with actual transmitted
@@ -43,9 +48,12 @@ outputs/stage2_learned_entropy/20260627_stage2_learned_topk512_escape_huffman_fi
 
 The Stage 3 eval script uses the same decoder-schedule top-k reconstruction as
 Stage 2 and reports semantic payload bpp, detail payload bpp, total payload
-bpp, full stream bpp, quality metrics, and both semantic/detail roundtrip. The
-residual grid can be coded with fixed bits, zlib-fixed bits, or a decoder-known
-static Huffman prior.
+bpp, debug full stream bpp, quality metrics, and both semantic/detail
+roundtrip. Per Decision 010, `actual_payload_bpp` / `total_payload_bpp` is the
+main paper metric; `stage3_full_stream_bpp` is a legacy alias for
+`debug_full_stream_bpp` and should not be used as the main LIC comparison bpp.
+The residual grid can be coded with fixed bits, zlib-fixed bits, or a
+decoder-known static Huffman prior.
 
 ## Kodak Sweep
 
@@ -501,7 +509,11 @@ historical compact-v2 low-rate d32 b4 r0.25 position Huffman, CRC32 + short ID:
 roundtrip_failure_count: 0 for all six short-ID compact CRC32 runs
 ```
 
-## Decision
+## Historical Decision Before Decision 011
+
+The decision below records the best Stage 3 anchor before the later
+semantic-position-left Huffman update. The currently active entropy anchor is
+Decision 011.
 
 Use `d32 b5 r0.25 hybrid position/semantic-position g4 Huffman` with
 `smoothing_count=0` as the active Stage 3 quality bootstrap, and use
@@ -530,8 +542,9 @@ Huffman and gives a small but consistent actual-bpp reduction. Decision 009
 then supersedes both the pure b4 low-rate anchor and the pure b5 quality anchor
 with a hybrid position/semantic-position Huffman selector that transmits its
 mode bit and improves actual bpp on Kodak, DIV2K, and CLIC without changing
-reconstruction. The active b4 low-rate anchor uses g8 with smoothing=0; the
-active b5 quality anchor uses g4 with smoothing=0 after g4/g8/smoothing
+reconstruction. At that point, the b4 low-rate anchor used g8 with
+smoothing=0 and the b5 quality anchor used g4 with smoothing=0 after
+g4/g8/smoothing
 actual-byte comparisons.
 The compact CoSERBitstream header replaces the earlier
 JSON-header evaluation for active full-stream bpp. Compact v3 CRC32 is the
@@ -602,15 +615,14 @@ d16 b4 r0.25:
 ## Next Actions
 
 ```text
-1. Keep d32 b5 r0.25 hybrid position/semantic-position g4 Huffman with
-   smoothing=0 as the active quality bootstrap and d32 b4 r0.25 hybrid
-   position/semantic-position g8 Huffman with smoothing=0 as the low-rate
-   anchor.
+1. Keep d32 b5 r0.25 semantic-position-left g4 Huffman with smoothing=0 as
+   the active quality bootstrap and d32 b4 r0.25 semantic-position-left g4
+   Huffman with smoothing=0 as the low-rate anchor.
 2. Rework the learned residual AE around an explicit entropy objective,
    teacher-distilled residual target, or spatially adaptive residual allocation
    before giving it longer training.
 3. Replace fixed residual coding only after the learned detail path beats the
-   hybrid-Huffman anchors under actual CoSERBitstream bytes.
+   semantic-position-left Huffman anchors under actual_payload_bpp.
 4. Use the cross-dataset residual diagnostics: range 0.25 is not clipping on
    Kodak, DIV2K, or CLIC, so prioritize conditional entropy/detail allocation
    over range expansion.

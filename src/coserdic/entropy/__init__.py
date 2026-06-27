@@ -5,6 +5,7 @@ from .residual_grid import (
     StaticResidualGridHuffmanCode,
     StaticResidualGridHybridHuffmanCode,
     StaticResidualGridPositionHuffmanCode,
+    StaticResidualGridSemanticPositionLeftContextHuffmanCode,
     StaticResidualGridSemanticPositionHuffmanCode,
     UniformResidualGridCode,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "StaticResidualGridHuffmanCode",
     "StaticResidualGridHybridHuffmanCode",
     "StaticResidualGridPositionHuffmanCode",
+    "StaticResidualGridSemanticPositionLeftContextHuffmanCode",
     "StaticResidualGridSemanticPositionHuffmanCode",
     "TopKEscapeHuffmanCode",
     "UniformResidualGridCode",

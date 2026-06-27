@@ -17,6 +17,12 @@ from torchvision.transforms import functional as TF
 from torchvision.utils import save_image
 from tqdm import tqdm
 
+from coserdic.datasets.eval_protocols import (
+    EVAL_PROTOCOLS,
+    flatten_selection_paths,
+    protocol_summary,
+    resolve_eval_protocol,
+)
 from coserdic.datasets.image_folder import IMAGE_SUFFIXES
 from coserdic.entropy import (
     CoSERBitstream,
@@ -25,6 +31,7 @@ from coserdic.entropy import (
     decode_semantic_tokens,
     encode_semantic_tokens,
 )
+from coserdic.metrics import PerceptualMetricBundle
 from coserdic.models import (
     CausalTokenPrior,
     CausalTokenPriorConfig,
@@ -37,14 +44,23 @@ from coserdic.utils import seed_everything
 
 
 class CenterCropImageDataset(Dataset):
-    def __init__(self, roots: list[str], crop_size: int, limit: int = 0) -> None:
-        self.paths: list[Path] = []
-        for root in roots:
-            self.paths.extend(sorted(p for p in Path(root).rglob("*") if p.suffix.lower() in IMAGE_SUFFIXES))
+    def __init__(
+        self,
+        roots: list[str],
+        crop_size: int,
+        limit: int = 0,
+        image_paths: list[str | Path] | None = None,
+    ) -> None:
+        if image_paths is None:
+            self.paths = []
+            for root in roots:
+                self.paths.extend(sorted(p for p in Path(root).rglob("*") if p.suffix.lower() in IMAGE_SUFFIXES))
+        else:
+            self.paths = [Path(path) for path in image_paths]
         if limit:
             self.paths = self.paths[:limit]
         if not self.paths:
-            raise FileNotFoundError(f"no images found under {roots}")
+            raise FileNotFoundError(f"no images found under {roots or image_paths}")
         self.crop_size = crop_size
 
     def __len__(self) -> int:
@@ -171,18 +187,26 @@ def main() -> None:
     parser.add_argument("--token-prior-checkpoint", default="")
     parser.add_argument("--config", default="")
     parser.add_argument("--image-root", action="append", default=None)
+    parser.add_argument("--eval-protocol", choices=sorted(EVAL_PROTOCOLS), default="")
+    parser.add_argument("--eval-dataset", action="append", default=None)
+    parser.add_argument("--dpl-root", default="/dpl")
+    parser.add_argument("--allow-protocol-count-mismatch", action="store_true")
+    parser.add_argument("--allow-nondeterministic-eval", action="store_true")
     parser.add_argument("--output-dir", default="results/bitstreams/stage2_learned_topk_escape")
     parser.add_argument("--crop-size", type=int, default=256)
-    parser.add_argument("--max-images", type=int, default=64)
+    parser.add_argument("--max-images", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--stream-header-codec", choices=["json", "compact"], default="json")
     parser.add_argument("--stream-checksum-codec", choices=["sha256", "crc32"], default="sha256")
     parser.add_argument("--save-bitstreams", action="store_true")
     parser.add_argument("--allow-roundtrip-failures", action="store_true")
+    parser.add_argument("--compute-perceptual", action="store_true")
     parser.add_argument("--wandb-mode", default="offline")
     parser.add_argument("--run-name", default="")
     args = parser.parse_args()
+    if args.max_images is None:
+        args.max_images = 0 if args.eval_protocol else 64
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
@@ -191,7 +215,10 @@ def main() -> None:
     checkpoint_path = Path(args.checkpoint)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     raw = load_config_from_checkpoint(checkpoint, args.config or None)
-    seed_everything(int(raw.get("experiment", {}).get("seed", 42)))
+    seed_everything(
+        int(raw.get("experiment", {}).get("seed", 42)),
+        deterministic=not args.allow_nondeterministic_eval,
+    )
     cfg = SemanticVQConfig(**checkpoint["semantic_vq_config"])
     model = SemanticVQAutoEncoder(cfg).to(device)
     model.load_state_dict(checkpoint["model"])
@@ -209,10 +236,22 @@ def main() -> None:
     if token_prior.cfg.vocab_size != cfg.codebook_size:
         raise ValueError("token prior vocab_size does not match Stage 1 checkpoint")
 
+    eval_protocol_summary: dict[str, object] | None = None
+    eval_image_paths: list[Path] | None = None
     roots = args.image_root or raw.get("data", {}).get("train_roots")
-    if not roots:
+    if args.eval_protocol:
+        selections = resolve_eval_protocol(
+            args.eval_protocol,
+            dpl_root=args.dpl_root,
+            dataset_keys=args.eval_dataset,
+            strict_expected_counts=not args.allow_protocol_count_mismatch,
+        )
+        eval_protocol_summary = protocol_summary(args.eval_protocol, selections)
+        eval_image_paths = flatten_selection_paths(selections)
+        roots = [str(root) for selection in selections for root in selection.source_roots]
+    if not roots and eval_image_paths is None:
         raise ValueError("no evaluation roots found; pass --image-root")
-    dataset = CenterCropImageDataset(roots, crop_size=args.crop_size, limit=args.max_images)
+    dataset = CenterCropImageDataset(roots, crop_size=args.crop_size, limit=args.max_images, image_paths=eval_image_paths)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 
     run_name = args.run_name or f"{checkpoint_path.stem}_stage2_learned_topk_escape_eval"
@@ -224,10 +263,14 @@ def main() -> None:
 
     learned_name = "learned_topk_escape_huffman"
     buckets = {
-        learned_name: {"payload_bpp": [], "actual_bpp": [], "stream_bytes": [], "payload_bytes": [], "psnr": [], "l1": [], "ms_ssim": [], "roundtrip": [], "topk_hit_rate": [], "unpadded_bits_per_token": []},
-        "fixed_bits": {"payload_bpp": [], "actual_bpp": [], "stream_bytes": [], "payload_bytes": [], "psnr": [], "l1": [], "ms_ssim": [], "roundtrip": []},
+        learned_name: {"payload_bpp": [], "actual_payload_bpp": [], "paper_bpp": [], "actual_bpp": [], "debug_full_stream_bpp": [], "stream_bytes": [], "payload_bytes": [], "psnr": [], "l1": [], "ms_ssim": [], "roundtrip": [], "topk_hit_rate": [], "unpadded_bits_per_token": []},
+        "fixed_bits": {"payload_bpp": [], "actual_payload_bpp": [], "paper_bpp": [], "actual_bpp": [], "debug_full_stream_bpp": [], "stream_bytes": [], "payload_bytes": [], "psnr": [], "l1": [], "ms_ssim": [], "roundtrip": []},
     }
+    if args.compute_perceptual:
+        for metrics in buckets.values():
+            metrics.update({"lpips_alex": [], "dists": []})
     coder = CoSERBitstream(header_codec=args.stream_header_codec, checksum_codec=args.stream_checksum_codec)
+    perceptual = PerceptualMetricBundle().to(device).eval() if args.compute_perceptual else None
     sample_written = False
     roundtrip_failures: list[dict[str, object]] = []
 
@@ -279,13 +322,24 @@ def main() -> None:
                         )
                     x_hat = decode_indices_to_image(model, cfg, decoded.unsqueeze(0)).clamp(0, 1)
                     bucket = buckets[codec_name]
-                    bucket["payload_bpp"].append(coder.actual_bpp(token_payload, int(x_i.shape[-2]), int(x_i.shape[-1])))
-                    bucket["actual_bpp"].append(coder.actual_bpp(stream, int(x_i.shape[-2]), int(x_i.shape[-1])))
+                    h = int(x_i.shape[-2])
+                    w = int(x_i.shape[-1])
+                    payload_bpp = coder.actual_payload_bpp(token_payload, h, w)
+                    debug_full_stream_bpp = coder.debug_full_stream_bpp(stream, h, w)
+                    bucket["payload_bpp"].append(payload_bpp)
+                    bucket["actual_payload_bpp"].append(payload_bpp)
+                    bucket["paper_bpp"].append(payload_bpp)
+                    bucket["actual_bpp"].append(debug_full_stream_bpp)
+                    bucket["debug_full_stream_bpp"].append(debug_full_stream_bpp)
                     bucket["stream_bytes"].append(float(len(stream)))
                     bucket["payload_bytes"].append(float(len(token_payload)))
                     bucket["psnr"].append(float(psnr(x_i, x_hat).item()))
                     bucket["l1"].append(float(torch.mean(torch.abs(x_hat - x_i)).item()))
                     bucket["ms_ssim"].append(float(ms_ssim(x_hat, x_i, data_range=1.0, size_average=True).item()))
+                    if perceptual is not None:
+                        perceptual_result = perceptual(x_i, x_hat)
+                        bucket["lpips_alex"].append(perceptual_result.lpips_alex)
+                        bucket["dists"].append(perceptual_result.dists)
                     roundtrip_ok = bool(torch.equal(decoded, indices))
                     bucket["roundtrip"].append(float(roundtrip_ok))
                     if not roundtrip_ok:
@@ -316,6 +370,15 @@ def main() -> None:
         "topk": code.topk,
         "stream_header_codec": args.stream_header_codec,
         "stream_checksum_codec": args.stream_checksum_codec,
+        "main_bpp_metric": f"{learned_name}_actual_payload_bpp_mean",
+        "paper_bpp_metric": f"{learned_name}_paper_bpp_mean",
+        "debug_bpp_metric": f"{learned_name}_debug_full_stream_bpp_mean",
+        "eval_protocol": args.eval_protocol or "manual_roots",
+        "eval_datasets": args.eval_dataset or [],
+        "eval_image_roots": roots,
+        "eval_protocol_summary": eval_protocol_summary or {},
+        "deterministic_eval": not args.allow_nondeterministic_eval,
+        "compute_perceptual": bool(args.compute_perceptual),
     }
     for codec_name, metrics in buckets.items():
         for metric_name, values in metrics.items():
@@ -339,7 +402,7 @@ def main() -> None:
         project="coserdic",
         name=run_name,
         mode=args.wandb_mode,
-        config=vars(args),
+        config={**vars(args), "eval_protocol_summary": eval_protocol_summary or {}},
     )
     wandb_run.summary.update(summary)
     wandb_run.finish()

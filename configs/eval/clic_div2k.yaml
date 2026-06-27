@@ -2,9 +2,17 @@ datasets:
   clic_valid:
     path: /dpl/clic/professional/valid
     full_resolution: true
-  div2k:
+    protocol_key: clic_professional_valid
+  div2k_val:
     path: /dpl/div2k
+    filename_indices: 0801-0900
     full_resolution: true
+    protocol_key: div2k_val
+
+protocol:
+  default: coser_common_lic
+  config: configs/eval/protocols.yaml
+  note: Use gencodec_reproduction for CLIC2020 test 428 comparisons; this config is the CoSER common LIC validation protocol.
 
 evaluation:
   use_compress_decompress: true
@@ -32,4 +40,3 @@ metrics:
 
 report:
   output_dir: results/eval/clic_div2k
-

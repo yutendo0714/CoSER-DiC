@@ -1,0 +1,94 @@
+protocols:
+  coser_common_lic:
+    purpose: CoSER-DiC internal common LIC table.
+    datasets:
+      - key: kodak
+        name: Kodak
+        count: 24
+      - key: clic_professional_valid
+        name: CLIC Professional Validation
+        count: 41
+      - key: div2k_val
+        name: DIV2K validation
+        count: 100
+        resolver: filename_indices_0801_0900
+    metrics:
+      primary:
+        - PSNR
+        - MS-SSIM
+        - LPIPS
+        - DISTS
+      optional:
+        - FID
+        - KID
+    bpp: actual_payload_bpp
+    notes:
+      - Do not mix this with CLIC2020 test 428 in one table without explicit labels.
+      - Kodak FID is optional and should be labeled as low-sample or patch-based.
+
+  coser_common_lic_plus_mobile:
+    purpose: CoSER-DiC internal validation with mobile-domain coverage.
+    datasets:
+      - key: kodak
+        name: Kodak
+        count: 24
+      - key: clic_professional_valid
+        name: CLIC Professional Validation
+        count: 41
+      - key: clic_mobile_valid
+        name: CLIC Mobile Validation
+        count: 61
+      - key: div2k_val
+        name: DIV2K validation
+        count: 100
+        resolver: filename_indices_0801_0900
+    metrics:
+      primary:
+        - PSNR
+        - MS-SSIM
+        - LPIPS
+        - DISTS
+      optional:
+        - FID
+        - KID
+    bpp: actual_payload_bpp
+
+  gencodec_reproduction:
+    purpose: GenCodec / CoD / CoD-Lite comparison table.
+    datasets:
+      - key: kodak
+        name: Kodak
+        count: 24
+      - key: clic2020_test
+        name: CLIC2020 test
+        count: 428
+        components:
+          - /dpl/clic/professional/test
+          - /dpl/clic/mobile/test
+      - key: div2k_val
+        name: DIV2K validation
+        count: 100
+        resolver: filename_indices_0801_0900
+    metrics:
+      primary:
+        - PSNR
+        - LPIPS
+        - DISTS
+        - FID
+      optional:
+        - MS-SSIM
+        - KID
+    bpp:
+      coserdic: actual_payload_bpp
+      external_codec: label official nominal bpp, payload bpp, and codec file bpp separately
+    preprocessing:
+      cod_style:
+        kodak: resized and center-cropped to 512x512 when reproducing CoD tables.
+        clic2020_test: resized and center-cropped to 512x512 for CoD, full resolution for CoD-Lite-style reporting.
+        div2k_val: resized and center-cropped to 512x512 for CoD-style appendix curves.
+      coserdic_current:
+        default: center crop controlled by --crop-size until full-resolution padding evaluation is implemented.
+    notes:
+      - CLIC2020 test 428 is professional/test plus mobile/test, not CLIC Professional Validation 41.
+      - DIV2K validation is filenames 0801.png through 0900.png when the local root is mixed.
+      - Patch-based or overlapped-patch FID must be labeled in the table caption.

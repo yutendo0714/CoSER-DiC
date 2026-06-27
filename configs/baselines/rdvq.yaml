@@ -8,5 +8,9 @@ usage_policy:
   mvp_note: CoSER semantic VQ must be scratch-trained. RDVQ checkpoints are baseline/sanity only.
 evaluation:
   actual_bpp: prefer_official_compress_decompress
-  datasets: [kodak, clic_valid, div2k]
-
+  protocols:
+    - coser_common_lic
+    - gencodec_reproduction
+  datasets:
+    coser_common_lic: [kodak, clic_professional_valid, div2k_val]
+    gencodec_reproduction: [kodak, clic2020_test, div2k_val]

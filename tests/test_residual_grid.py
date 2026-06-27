@@ -5,6 +5,7 @@ from coserdic.entropy import (
     StaticResidualGridHuffmanCode,
     StaticResidualGridHybridHuffmanCode,
     StaticResidualGridPositionHuffmanCode,
+    StaticResidualGridSemanticPositionLeftContextHuffmanCode,
     StaticResidualGridSemanticPositionHuffmanCode,
     UniformResidualGridCode,
 )
@@ -183,3 +184,50 @@ def test_static_residual_grid_hybrid_huffman_roundtrip() -> None:
     assert hybrid.encoded_bits(codes, semantic_indices=semantic_indices) <= 1 + codes.numel() * 4
     with pytest.raises(ValueError, match="semantic_indices shape"):
         hybrid.decode(payload, shape=tuple(codes.shape), semantic_indices=torch.zeros(1, 2, dtype=torch.long))
+
+
+def test_static_residual_grid_semantic_position_leftctx_huffman_roundtrip() -> None:
+    residual = torch.tensor(
+        [
+            [[-0.1, 0.0, 0.1], [0.2, 0.1, -0.1]],
+            [[0.02, -0.03, 0.0], [0.05, 0.02, -0.02]],
+        ],
+        dtype=torch.float32,
+    )
+    semantic_indices = torch.tensor([[0, 1, 2], [3, 0, 1]], dtype=torch.long)
+    token_to_group = [0, 1, 0, 1]
+    quantizer = UniformResidualGridCode(bits=4, value_range=0.25)
+    codes = quantizer.quantize(residual)
+    counts = torch.ones(2, 2, 3, 2, 4, quantizer.levels, dtype=torch.long)
+    zero_code = int(round(float(quantizer.levels - 1) / 2.0))
+    for channel in range(2):
+        for y in range(2):
+            for x in range(3):
+                group = token_to_group[int(semantic_indices[y, x])]
+                if x == 0:
+                    left_context = 0
+                elif int(codes[channel, y, x - 1]) < zero_code:
+                    left_context = 1
+                elif int(codes[channel, y, x - 1]) == zero_code:
+                    left_context = 2
+                else:
+                    left_context = 3
+                counts[channel, y, x, group, left_context, int(codes[channel, y, x])] += 16
+    semantic_leftctx = StaticResidualGridSemanticPositionLeftContextHuffmanCode.from_counts(
+        counts,
+        bits=4,
+        value_range=0.25,
+        semantic_shape=(2, 3),
+        token_to_group=token_to_group,
+        smoothing_count=1,
+    )
+
+    payload = semantic_leftctx.encode(codes, semantic_indices=semantic_indices)
+    decoded = semantic_leftctx.decode(payload, shape=tuple(codes.shape), semantic_indices=semantic_indices)
+    restored = StaticResidualGridSemanticPositionLeftContextHuffmanCode.from_dict(semantic_leftctx.to_dict())
+
+    assert torch.equal(decoded, codes)
+    assert torch.equal(restored.decode(payload, shape=tuple(codes.shape), semantic_indices=semantic_indices), codes)
+    assert semantic_leftctx.encoded_bits(codes, semantic_indices=semantic_indices) <= codes.numel() * 4
+    with pytest.raises(ValueError, match="semantic_indices shape"):
+        semantic_leftctx.decode(payload, shape=tuple(codes.shape), semantic_indices=torch.zeros(1, 3, dtype=torch.long))

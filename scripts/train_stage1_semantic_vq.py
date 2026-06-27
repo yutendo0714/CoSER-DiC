@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import sys
 import time
@@ -18,7 +19,13 @@ from tqdm import tqdm
 
 from coserdic.datasets.image_folder import IMAGE_SUFFIXES
 from coserdic.losses import Stage1LossWeights, Stage1SemanticVQLoss
-from coserdic.models import SemanticVQAutoEncoder, SemanticVQConfig
+from coserdic.models import (
+    CausalTokenPrior,
+    CausalTokenPriorConfig,
+    SemanticVQAutoEncoder,
+    SemanticVQConfig,
+    shifted_causal_inputs,
+)
 from coserdic.utils import seed_everything
 
 
@@ -107,6 +114,17 @@ def make_config(
         soft_st_temperature=float(vq.get("soft_st_temperature", 1.0)),
         normalize_latent=bool(vq.get("normalize_latent", False)) if normalize_latent is None else normalize_latent,
     )
+
+
+def load_token_prior(path: str, device: torch.device) -> CausalTokenPrior:
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    cfg = CausalTokenPriorConfig(**checkpoint["config"])
+    model = CausalTokenPrior(cfg).to(device)
+    model.load_state_dict(checkpoint["model"])
+    model.eval()
+    for param in model.parameters():
+        param.requires_grad_(False)
+    return model
 
 
 @torch.no_grad()
@@ -206,7 +224,12 @@ def main() -> None:
     parser.add_argument("--loss-lpips-sem", type=float, default=-1.0)
     parser.add_argument("--loss-vq", type=float, default=-1.0)
     parser.add_argument("--loss-codebook-usage", type=float, default=-1.0)
+    parser.add_argument("--loss-rate-prior", type=float, default=0.0)
+    parser.add_argument("--rate-prior-checkpoint", default="")
+    parser.add_argument("--rate-soft-temperature", type=float, default=0.1)
+    parser.add_argument("--freeze-codebook", action="store_true")
     parser.add_argument("--grad-clip-norm", type=float, default=0.0)
+    parser.add_argument("--force-fp32", action="store_true")
     parser.add_argument("--disable-lpips", action="store_true")
     parser.add_argument("--wandb-mode", default="offline")
     parser.add_argument("--run-name", default="")
@@ -244,6 +267,7 @@ def main() -> None:
         normalize_latent=args.normalize_latent,
     )
     model = SemanticVQAutoEncoder(cfg).to(device)
+    token_prior: CausalTokenPrior | None = None
     init_summary: dict[str, object] = {}
     if args.init_checkpoint:
         init_checkpoint = torch.load(args.init_checkpoint, map_location="cpu", weights_only=False)
@@ -262,6 +286,23 @@ def main() -> None:
             device,
             max_vectors=args.codebook_init_max_vectors,
         )
+    if args.freeze_codebook:
+        for param in model.vq.parameters():
+            param.requires_grad_(False)
+        init_summary["freeze_codebook"] = True
+    if args.rate_prior_checkpoint:
+        if args.loss_rate_prior <= 0:
+            raise ValueError("--loss-rate-prior must be positive when --rate-prior-checkpoint is set")
+        if args.rate_soft_temperature <= 0:
+            raise ValueError("--rate-soft-temperature must be positive")
+        token_prior = load_token_prior(args.rate_prior_checkpoint, device)
+        if token_prior.cfg.vocab_size != cfg.codebook_size:
+            raise ValueError(
+                f"token prior vocab_size={token_prior.cfg.vocab_size} does not match "
+                f"Stage 1 codebook_size={cfg.codebook_size}"
+            )
+        init_summary["rate_prior_checkpoint"] = args.rate_prior_checkpoint
+        init_summary["rate_prior_config"] = token_prior.config_dict()
     model.train()
     weights = Stage1LossWeights(
         l1_sem=args.loss_l1_sem if args.loss_l1_sem >= 0 else float(raw["loss"]["l1_sem"]),
@@ -290,7 +331,8 @@ def main() -> None:
         lr=args.lr if args.lr > 0 else float(raw["optimization"]["lr"]),
         weight_decay=float(raw["optimization"]["weight_decay"]),
     )
-    scaler = torch.amp.GradScaler("cuda", enabled=bool(raw["optimization"]["mixed_precision"]))
+    mixed_precision = bool(raw["optimization"]["mixed_precision"]) and not args.force_fp32
+    scaler = torch.amp.GradScaler("cuda", enabled=mixed_precision)
     quantize_warmup_steps = (
         args.quantize_warmup_steps
         if args.quantize_warmup_steps >= 0
@@ -329,6 +371,12 @@ def main() -> None:
             "vq_warmup_steps": vq_warmup_steps,
             "usage_warmup_steps": usage_warmup_steps,
             "grad_clip_norm": args.grad_clip_norm,
+            "mixed_precision": mixed_precision,
+            "force_fp32": args.force_fp32,
+            "rate_prior_checkpoint": args.rate_prior_checkpoint,
+            "loss_rate_prior": args.loss_rate_prior,
+            "rate_soft_temperature": args.rate_soft_temperature,
+            "freeze_codebook": args.freeze_codebook,
             "implementation_reference_policy": (
                 "docs/research/design_decisions/003_official_implementation_reference_policy.md"
             ),
@@ -358,9 +406,46 @@ def main() -> None:
                 raise ValueError("--fixed-quantize-mix must be in [0, 1]")
             vq_scale = linear_warmup_scale(step, vq_warmup_steps)
             usage_scale = linear_warmup_scale(step, usage_warmup_steps)
-            with torch.amp.autocast("cuda", enabled=bool(raw["optimization"]["mixed_precision"])):
-                out = model(x, quantize_mix=quantize_mix)
+            with torch.amp.autocast("cuda", enabled=mixed_precision):
+                out = model(
+                    x,
+                    quantize_mix=quantize_mix,
+                    return_rate_assignment_probs=token_prior is not None,
+                    rate_assignment_temperature=float(args.rate_soft_temperature),
+                )
                 losses = loss_fn(x, out, vq_scale=vq_scale, usage_scale=usage_scale)
+                if token_prior is not None:
+                    if "rate_assignment_probs" not in out:
+                        raise RuntimeError("Stage 1 model did not return rate_assignment_probs")
+                    targets = out["indices"].reshape(out["indices"].shape[0], -1).detach()
+                    if targets.shape[1] != token_prior.cfg.context_length:
+                        raise ValueError(
+                            f"token prior context_length={token_prior.cfg.context_length} does not match "
+                            f"Stage 1 token length={targets.shape[1]}"
+                        )
+                    inputs = shifted_causal_inputs(targets, bos_token_id=token_prior.bos_token_id)
+                    with torch.no_grad():
+                        prior_logits = token_prior(inputs)
+                    prior_log_probs = torch.log_softmax(prior_logits.float(), dim=-1)
+                    rate_probs = out["rate_assignment_probs"].reshape(
+                        targets.shape[0],
+                        targets.shape[1],
+                        token_prior.cfg.vocab_size,
+                    )
+                    rate_prior_bits = -torch.sum(rate_probs.float() * prior_log_probs, dim=-1).mean() / math.log(2.0)
+                    hard_prior_bits = (
+                        torch.nn.functional.cross_entropy(
+                            prior_logits.float().reshape(-1, prior_logits.shape[-1]),
+                            targets.reshape(-1),
+                            reduction="mean",
+                        )
+                        / math.log(2.0)
+                    )
+                    losses = dict(losses)
+                    losses["rate_prior_bits"] = rate_prior_bits.detach()
+                    losses["hard_prior_bits"] = hard_prior_bits.detach()
+                    losses["rate_prior"] = (float(args.loss_rate_prior) * rate_prior_bits).detach()
+                    losses["total"] = losses["total"] + float(args.loss_rate_prior) * rate_prior_bits
             if not torch.isfinite(losses["total"]):
                 raise FloatingPointError(f"non-finite Stage 1 loss at step {step}: {losses}")
             scaler.scale(losses["total"]).backward()
@@ -380,6 +465,7 @@ def main() -> None:
                     "loss_total": float(losses["total"].detach().cpu()),
                     "loss_l1_sem": float(losses["l1_sem"].cpu()),
                     "loss_ms_ssim_sem": float(losses["ms_ssim_sem"].cpu()),
+                    "loss_lpips_sem": float(losses["lpips_sem"].cpu()),
                     "loss_vq": float(losses["vq"].cpu()),
                     "loss_vq_commitment": float(losses["vq_commitment"].cpu()),
                     "loss_vq_codebook": float(losses["vq_codebook"].cpu()),
@@ -410,6 +496,10 @@ def main() -> None:
                     "lr": opt.param_groups[0]["lr"],
                     "step": step,
                 }
+                if "rate_prior_bits" in losses:
+                    last_metrics["loss_rate_prior_bits"] = float(losses["rate_prior_bits"].cpu())
+                    last_metrics["loss_hard_prior_bits"] = float(losses["hard_prior_bits"].cpu())
+                    last_metrics["loss_rate_prior"] = float(losses["rate_prior"].cpu())
                 if grad_norm is not None:
                     last_metrics["grad_norm"] = float(grad_norm.detach().cpu())
 

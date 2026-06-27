@@ -320,7 +320,11 @@ def main() -> None:
     metrics: dict[str, list[float]] = {
         "semantic_payload_bpp": [],
         "detail_payload_bpp": [],
+        "actual_payload_bpp": [],
+        "paper_bpp": [],
         "total_payload_bpp": [],
+        "debug_semantic_only_full_stream_bpp": [],
+        "debug_full_stream_bpp": [],
         "semantic_only_full_stream_bpp": [],
         "stage3_full_stream_bpp": [],
         "semantic_payload_bytes": [],
@@ -410,11 +414,20 @@ def main() -> None:
 
                 h = int(x_i.shape[-2])
                 w = int(x_i.shape[-1])
-                metrics["semantic_payload_bpp"].append(coder.actual_bpp(semantic_payload, h, w))
-                metrics["detail_payload_bpp"].append(coder.actual_bpp(detail_payload, h, w))
-                metrics["total_payload_bpp"].append(coder.actual_bpp(semantic_payload + detail_payload, h, w))
-                metrics["semantic_only_full_stream_bpp"].append(coder.actual_bpp(semantic_only_stream, h, w))
-                metrics["stage3_full_stream_bpp"].append(coder.actual_bpp(stage3_stream, h, w))
+                semantic_payload_bpp = coder.actual_payload_bpp(semantic_payload, h, w)
+                detail_payload_bpp = coder.actual_payload_bpp(detail_payload, h, w)
+                actual_payload_bpp = coder.actual_payload_bpp((semantic_payload, detail_payload), h, w)
+                semantic_only_debug_bpp = coder.debug_full_stream_bpp(semantic_only_stream, h, w)
+                stage3_debug_bpp = coder.debug_full_stream_bpp(stage3_stream, h, w)
+                metrics["semantic_payload_bpp"].append(semantic_payload_bpp)
+                metrics["detail_payload_bpp"].append(detail_payload_bpp)
+                metrics["actual_payload_bpp"].append(actual_payload_bpp)
+                metrics["paper_bpp"].append(actual_payload_bpp)
+                metrics["total_payload_bpp"].append(actual_payload_bpp)
+                metrics["debug_semantic_only_full_stream_bpp"].append(semantic_only_debug_bpp)
+                metrics["debug_full_stream_bpp"].append(stage3_debug_bpp)
+                metrics["semantic_only_full_stream_bpp"].append(semantic_only_debug_bpp)
+                metrics["stage3_full_stream_bpp"].append(stage3_debug_bpp)
                 metrics["semantic_payload_bytes"].append(float(len(semantic_payload)))
                 metrics["detail_payload_bytes"].append(float(len(detail_payload)))
                 metrics["stage3_stream_bytes"].append(float(len(stage3_stream)))
@@ -456,6 +469,9 @@ def main() -> None:
         "detail_codec": "learned_residual_ae_static_huffman",
         "stream_header_codec": args.stream_header_codec,
         "stream_checksum_codec": args.stream_checksum_codec,
+        "main_bpp_metric": "actual_payload_bpp_mean",
+        "paper_bpp_metric": "paper_bpp_mean",
+        "debug_bpp_metric": "debug_full_stream_bpp_mean",
         "residual_code": residual_code.to_dict(),
         **prior_fit_summary,
     }

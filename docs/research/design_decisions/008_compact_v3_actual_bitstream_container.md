@@ -4,9 +4,12 @@ Date: 2026-06-27
 
 ## Context
 
-Core MVP evaluation must use actual bytes produced by `compress/decompress`,
-not estimated bitrate. After moving from JSON headers to compact headers, fixed
-container overhead was still visible at 256x256 low-bitrate crop scale:
+Core MVP engineering audits must use actual bytes produced by
+`compress/decompress`, not estimated bitrate. Decision 010 separates the paper
+metric (`actual_payload_bpp`, entropy-coded payload streams only) from
+`debug_full_stream_bpp` (payload plus CoSER container/header/checksum). After
+moving from JSON headers to compact headers, fixed container overhead was still
+visible at 256x256 low-bitrate crop scale:
 
 ```text
 Stage 2 Kodak semantic-only, compact-v2 CRC32 short ID:
@@ -18,7 +21,8 @@ Stage 3 Kodak d32/b5/r0.25 position Huffman, compact-v2 CRC32 short ID:
   full_stream_bpp: 0.031300862630208336
 ```
 
-This overhead was a container artifact, not a codec property.
+This overhead was a container artifact, not a codec property. It is useful for
+roundtrip and file-format analysis, but not the main LIC paper comparison bpp.
 
 ## Decision
 

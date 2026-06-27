@@ -183,7 +183,7 @@ payload savings over the active Stage 2 baseline, not just estimated
 cross-entropy or fixed_bits.
 ```
 
-Current actual-bpp gate:
+Current actual-payload-bpp gate:
 
 ```text
 fixed_bits payload_bpp: 0.012695
@@ -212,31 +212,38 @@ Current bootstrap gate:
 
 ```text
 active Stage 2 semantic payload on Kodak: 0.010722 bpp
-Stage 3 active uniform residual d32/b5/r0.25 hybrid position/semantic-position g4 smoothing=0 detail payload on Kodak: 0.008153 bpp
-total semantic+detail payload on Kodak: 0.018875 bpp
-compact-v3 CRC32 full CoSERBitstream payload on Kodak: 0.023880 bpp
+Stage 3 active uniform residual d32/b5/r0.25 semantic-position-left g4 smoothing=0 detail payload on Kodak: 0.007751 bpp
+total semantic+detail payload on Kodak: 0.018473 bpp
+debug compact-v3 CRC32 full CoSERBitstream on Kodak: 0.023478 bpp
 quality delta vs semantic-only: +0.3957 dB PSNR, +0.00576 MS-SSIM
 roundtrip: true for semantic tokens and detail residual codes
-low-rate d32/b4/r0.25 hybrid position/semantic-position g8 smoothing=0 anchor: 0.016123 total payload bpp, 0.021128 compact-v3 CRC32 full-stream bpp, +0.3705 dB PSNR
-active cross-dataset compact-v3 CRC32 full-stream bpp:
-  Kodak: 0.023880, DIV2K100: 0.023857, CLIC professional valid 41: 0.022732
+low-rate d32/b4/r0.25 semantic-position-left g4 smoothing=0 anchor: 0.015828 actual payload bpp, 0.020833 debug compact-v3 CRC32 full-stream bpp, +0.3705 dB PSNR
+active cross-dataset actual payload bpp:
+  Kodak: 0.018473, DIV2K100: 0.018390, CLIC professional valid 41: 0.017257
+active cross-dataset debug compact-v3 CRC32 full-stream bpp:
+  Kodak: 0.023478, DIV2K100: 0.023395, CLIC professional valid 41: 0.022261
 active cross-dataset PSNR delta:
   Kodak: +0.3957 dB, DIV2K100: +0.4601 dB, CLIC professional valid 41: +0.7171 dB
-low-rate cross-dataset compact-v3 CRC32 full-stream bpp:
-  Kodak: 0.021128, DIV2K100: 0.021039, CLIC professional valid 41: 0.019990
+low-rate cross-dataset actual payload bpp:
+  Kodak: 0.015828, DIV2K100: 0.015658, CLIC professional valid 41: 0.014708
+low-rate cross-dataset debug compact-v3 CRC32 full-stream bpp:
+  Kodak: 0.020833, DIV2K100: 0.020663, CLIC professional valid 41: 0.019713
 low-rate cross-dataset PSNR delta:
   Kodak: +0.3705 dB, DIV2K100: +0.3055 dB, CLIC professional valid 41: +0.5649 dB
 previous pure position-Huffman b4 compact-v3 CRC32 full-stream bpp:
   Kodak: 0.021205, DIV2K100: 0.021266, CLIC professional valid 41: 0.020171
-semantic-position/hybrid decision:
-  pure semantic-position g4 improves DIV2K/CLIC but regresses Kodak; transmitted-mode hybrid position/semantic-position is active with g8 smoothing=0 for low-rate b4 and g4 smoothing=0 for quality b5
+semantic-position-left decision:
+  causal left-detail context improves over the previous transmitted-mode hybrid selector on every checked dataset without per-image mode bits or reconstruction changes
 additional CLIC professional+mobile valid 64 compact-v3 check:
-  active b5 hybrid g4 smoothing=0: 0.022936 bpp, +0.6829 dB
+  active b5 semantic-position-left g4 smoothing=0: 0.022491 bpp, +0.6829 dB
+  previous b5 hybrid g4 smoothing=0: 0.022936 bpp, +0.6829 dB
   previous b5 hybrid g4 smoothing=1: 0.022959 bpp, +0.6829 dB
   previous b5 hybrid g8: 0.022961 bpp, +0.6829 dB
   previous pure position b5: 0.023081 bpp, +0.6829 dB
   previous pure position low-rate b4: 0.020405 bpp, +0.5438 dB
-  low-rate hybrid b4 g8 smoothing=0: 0.020226 bpp, +0.5438 dB
+  active low-rate semantic-position-left b4 g4 smoothing=0: 0.019936 bpp, +0.5438 dB
+  previous low-rate semantic-position-left b4 g8 smoothing=0: 0.019932 bpp, +0.5438 dB
+  previous low-rate hybrid b4 g8 smoothing=0: 0.020226 bpp, +0.5438 dB
   previous low-rate hybrid b4 g8 smoothing=1: 0.020235 bpp, +0.5438 dB
 previous zlib-fixed d32/b4/r0.25 detail payload: 0.008759 bpp
 previous global-Huffman d32/b5/r0.25 total payload: 0.019007 bpp
@@ -246,6 +253,51 @@ previous compact CRC32 long-ID active full-stream payload: 0.033864 bpp
 historical compact-v2 CRC32 short-ID full-stream payload: 0.031301 bpp
 ```
 
+Evaluation protocol update:
+
+```text
+Earlier "DIV2K100" quick checks used /dpl/div2k with a first-100 limit, which
+corresponds to DIV2K train filenames 0001-0100 on this machine. Treat those
+numbers as fast internal smoke checks, not final DIV2K-validation results.
+
+Going forward:
+  CoSER common LIC protocol:
+    Kodak 24, CLIC Professional Validation 41, DIV2K validation 0801-0900
+  GenCodec / CoD / CoD-Lite reproduction protocol:
+    Kodak 24, CLIC2020 test 428, DIV2K validation 0801-0900
+
+Protocol resolver:
+  src/coserdic/datasets/eval_protocols.py
+Decision memo:
+  docs/research/design_decisions/012_evaluation_protocol_alignment.md
+```
+
+Protocol/perceptual evaluation update:
+
+```text
+LPIPS/DISTS support:
+  src/coserdic/metrics/perceptual.py
+
+CoSER common LIC protocol, 165 images:
+  b5 quality anchor:
+    actual_payload_bpp: 0.018368
+    LPIPS delta vs semantic-only: -0.005412
+    DISTS delta vs semantic-only: -0.005049
+  b4 low-rate anchor:
+    actual_payload_bpp: 0.015678
+    LPIPS delta vs semantic-only: -0.000832
+    DISTS delta vs semantic-only: -0.005221
+
+GenCodec reproduction protocol, 552 images:
+  b5 quality anchor:
+    actual_payload_bpp: 0.017736
+    LPIPS delta vs semantic-only: -0.006018
+    DISTS delta vs semantic-only: -0.004718
+
+Decision memo:
+  docs/research/design_decisions/013_stage3_protocol_perceptual_evaluation.md
+```
+
 Learned residual AE probe:
 
 ```text
@@ -253,7 +305,8 @@ implemented semantic-conditioned residual AE with actual transmitted detail payl
 2500step no-rate: 0.025370 total payload bpp, +0.2073 dB, +0.01159 MS-SSIM
 1000step rate-proxy 0.03 from no-rate: 0.015066 total payload bpp, +0.0112 dB, +0.00007 MS-SSIM
 decision: not active; keep as scaffold until a real entropy objective or
-teacher-distilled residual target beats the active hybrid-Huffman anchors
+teacher-distilled residual target beats the active semantic-position-left
+Huffman anchors
 ```
 
 Reference lessons:
@@ -263,6 +316,67 @@ GLC and StableCodec both show that latent/residual coding plus generative
 decoding is effective at ultra-low bpp. DLF is the closest semantic/detail
 competitor, so CoSER must report semantic/detail bpp decomposition and
 semantic-only/no-detail ablations clearly.
+```
+
+### 2026-06-27 Literature Refresh
+
+Recent primary sources reinforce the Core MVP direction:
+
+```text
+VQ/rate optimization:
+  RDVQ frames VQ-based generative compression as a differentiable
+  rate-distortion problem, connecting codebook assignment and entropy modeling.
+  Source: https://arxiv.org/html/2604.10546v1
+  Code: https://github.com/CVL-UESTC/RDVQ
+  CoSER takeaway: keep semantic tokenization rate-aware, but do not collapse
+  the semantic/detail split into a monolithic VQ codec.
+
+One-step diffusion/perceptual compression:
+  StableCodec and CoD-Lite push diffusion codecs toward practical one-step
+  decoding and real-time operation at ultra-low rates.
+  StableCodec source/code: https://arxiv.org/abs/2506.21977,
+  https://github.com/LuizScarlet/StableCodec
+  CoD-Lite source/code: https://www.microsoft.com/en-us/research/publication/cod-lite-real-time-diffusion-based-generative-image-compression/,
+  https://github.com/microsoft/GenCodec/tree/main/CoD_Lite
+  CoSER takeaway: Stage 4 should be a lightweight conditional renderer or
+  residual refiner, not a slow multi-step diffusion dependency.
+
+Screen/text-aware perceptual coding:
+  PICD separates text and image conditions before diffusion rendering.
+  Source: https://arxiv.org/abs/2505.05853
+  CoSER takeaway: if VeriText/text preservation becomes active, transmit any
+  image-specific OCR/text mask or prompt in actual_payload_bpp.
+
+Entropy modeling:
+  Dictionary-based entropy modeling and DCAE-style cross-attention priors show
+  that dataset-level memory can improve entropy coding without per-image side
+  information.
+  Source: https://arxiv.org/html/2504.00496v1
+  Code: https://github.com/CVL-UESTC/DCAE
+  CoSER takeaway: decoder-known static/dictionary context is aligned with the
+  semantic-position-left prior, but per-image adaptive dictionaries must be
+  counted as side information.
+
+Robustness and security:
+  Recent work exposes adversarial source perturbations, bitstream collisions,
+  training-free defenses, and diffusion-codec bit-flip robustness.
+  Sources:
+    https://arxiv.org/html/2503.19817v1
+    https://arxiv.org/html/2405.07717v2
+    https://arxiv.org/abs/2401.11902
+    https://openaccess.thecvf.com/content/CVPR2026W/AIGENS/html/Vaisman_On_the_Robustness_of_Diffusion-Based_Image_Compression_to_Bit-Flip_Errors_CVPRW_2026_paper.html
+  CoSER takeaway: add source-attack bpp inflation, semantic-token collision,
+  and bitstream corruption tests before any security claim.
+
+Task-aware compression:
+  Test-time adaptation and perception-oriented/task-oriented latent coding are
+  moving learned codecs toward downstream-aware objectives.
+  Sources:
+    https://openaccess.thecvf.com/content/CVPR2025/papers/Park_Test-Time_Fine-Tuning_of_Image_Compression_Models_for_Multi-Task_Adaptability_CVPR_2025_paper.pdf
+    https://github.com/NJUVISION/POLC
+    https://openreview.net/forum?id=x33vSZUg0A
+  CoSER takeaway: downstream-aware evaluation should be an explicit auxiliary
+  track, not a replacement for actual_payload_bpp image reconstruction tables.
 ```
 
 ### Stage 4 diffusion reconstruction
@@ -304,14 +418,125 @@ frequency-trigger/backdoor sensitivity
 privacy/semantic-redaction ablations for VLP models
 ```
 
+### Stage 3 reconstruction and distribution-metric gate
+
+Decision:
+
+```text
+Before Stage 4, keep crop-aligned reconstruction exports for reference,
+semantic-only, and Stage 3 outputs. Use image-level FID/KID and labeled
+patch-FID/KID as secondary distribution metrics, not as a replacement for
+actual_payload_bpp, PSNR, MS-SSIM, LPIPS, and DISTS.
+```
+
+Current CoSER common LIC evidence:
+
+```text
+run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_recon_export
+images: 165
+actual_payload_bpp: 0.018368
+roundtrip failures: 0
+
+image FID/KID:
+  semantic-only FID: 290.559459
+  stage3 FID: 285.503783
+  semantic-only KID: 0.087668
+  stage3 KID: 0.084817
+
+patch FID/KID, 128x128 non-overlapping patches:
+  semantic-only FID: 229.132822
+  stage3 FID: 226.920191
+  semantic-only KID: 0.104425
+  stage3 KID: 0.104232
+```
+
+CoSER takeaway: the residual detail stream improves distribution metrics
+modestly, consistent with LPIPS/DISTS deltas. The absolute FID/KID values are
+still high, so Stage 4 must target perceptual realism while preserving the
+current semantic/detail bitstream split and actual-payload-bpp accounting.
+
+### Stage 3 fixed detail-gain sweep
+
+Decision:
+
+```text
+Keep detail_gain=1.0 as the neutral Stage 3 quality anchor. Keep detail_gain
+0.9 and 1.1 as explicitly labeled fixed decoder-side perception presets.
+Do not select gain per image unless the control is transmitted and counted.
+```
+
+Current evidence on CoSER common LIC:
+
+```text
+all gains use the same actual_payload_bpp: 0.018368
+
+gain 0.9:
+  LPIPS: 0.694390, better than gain 1.0
+  DISTS: 0.410130, worse than gain 1.0
+  image KID: 0.084582, better than gain 1.0
+
+gain 1.0:
+  PSNR: 21.389952
+  LPIPS: 0.694812
+  DISTS: 0.409673
+
+gain 1.1:
+  PSNR: 21.389965, essentially tied/slightly higher
+  DISTS: 0.409266, better than gain 1.0
+  LPIPS: 0.695422, worse than gain 1.0
+```
+
+CoSER takeaway: residual magnitude is a real perception knob, but it is not a
+free universal improvement. It should inform Stage 4/5 rate-perception control
+rather than replace the neutral Stage 3 anchor.
+
+### Deterministic actual-bpp evaluation
+
+Decision:
+
+```text
+Use deterministic evaluation by default for CoSER-owned Stage 1/2/3 bitstream
+runs. Final paper tables should use deterministic actual_payload_bpp runs.
+```
+
+Current active deterministic Stage 3 b5 CoSER common LIC anchor:
+
+```text
+run: 20260627_stage3_b5_semposleft_g4_coser_common_lic_deterministic_perceptual
+actual_payload_bpp: 0.018370
+PSNR: 21.390054
+MS-SSIM: 0.693741
+LPIPS Alex: 0.694714
+DISTS: 0.409676
+roundtrip failures: 0
+```
+
+Reproducibility evidence:
+
+```text
+deterministic smoke:
+  20260627_stage3_deterministic_smoke_gain110_a
+  20260627_stage3_deterministic_smoke_gain110_b
+audit:
+  results/analysis/reproducibility/20260627_stage3_deterministic_smoke_gain110_a_vs_b.json
+result:
+  strict mismatches: 0
+  tolerance mismatches: 0
+```
+
+CoSER takeaway: nondeterministic GPU eval can move real payload bytes by small
+amounts. That is still unacceptable for final `paper_bpp`, so deterministic
+evaluation is now the default.
+
 ## Current Research Priority
 
 1. Replace the fixed residual-grid detail path only when a learned residual
-   entropy model beats the b5/b4 hybrid-Huffman anchors under actual
-   compact CoSERBitstream bytes.
+   entropy model beats the b5/b4 semantic-position-left Huffman anchors under
+   actual_payload_bpp, with debug_full_stream_bpp kept as a roundtrip audit.
 2. Tighten Stage 2 real-byte coding toward the RDVQ top-k/escape tensor-rANS
    reference, with the current Huffman bridge kept as the active baseline.
-3. Keep CoD-Lite checkpoint compatibility audit running in parallel, but do
-   not start Stage 4 integration until Stage 2/3 stream interfaces are clean.
+3. Keep CoD-Lite checkpoint compatibility audit running in parallel, but gate
+   Stage 4 on the same reconstruction export, LPIPS/DISTS, FID/KID, and
+   actual_payload_bpp protocol used for Stage 3.
 4. Add robustness/security evaluation after the semantic/detail streams are
    stable, especially bitstream corruption and source-attack bpp inflation.
