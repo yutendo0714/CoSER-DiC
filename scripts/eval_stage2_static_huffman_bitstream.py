@@ -21,7 +21,10 @@ from coserdic.datasets.image_folder import IMAGE_SUFFIXES
 from coserdic.entropy import (
     CoSERBitstream,
     CoSERHeader,
+    StaticANSCode,
     StaticHuffmanCode,
+    StaticLeftContextHuffmanCode,
+    StaticPositionHuffmanCode,
     decode_semantic_tokens,
     encode_semantic_tokens,
 )
@@ -88,6 +91,17 @@ def decode_indices_to_image(model: SemanticVQAutoEncoder, cfg: SemanticVQConfig,
     return model.decoder(quant.to(dtype=next(model.parameters()).dtype))
 
 
+def codec_header_id(codec_name: str) -> str:
+    ids = {
+        "fixed_bits": "fxb0",
+        "static_ans": "ans0",
+        "static_huffman": "gsh0",
+        "static_position_huffman": "sph0",
+        "static_left_context_huffman": "lch0",
+    }
+    return ids.get(codec_name, "unk0")
+
+
 def write_run_doc(path: Path, payload: dict) -> None:
     lines = [
         f"# {payload['run_name']}",
@@ -123,6 +137,8 @@ def main() -> None:
     parser.add_argument("--max-images", type=int, default=64)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--stream-header-codec", choices=["json", "compact"], default="json")
+    parser.add_argument("--stream-checksum-codec", choices=["sha256", "crc32"], default="sha256")
     parser.add_argument("--save-bitstreams", action="store_true")
     parser.add_argument("--wandb-mode", default="offline")
     parser.add_argument("--run-name", default="")
@@ -140,7 +156,20 @@ def main() -> None:
     model = SemanticVQAutoEncoder(cfg).to(device)
     model.load_state_dict(checkpoint["model"])
     model.eval()
-    code = StaticHuffmanCode.from_dict(json.loads(Path(args.prior).read_text()))
+    prior_payload = json.loads(Path(args.prior).read_text())
+    prior_codec = str(prior_payload.get("codec", "static_huffman"))
+    if prior_codec == "static_position_huffman":
+        code = StaticPositionHuffmanCode.from_dict(prior_payload)
+        learned_codec_name = "static_position_huffman"
+    elif prior_codec == "static_left_context_huffman":
+        code = StaticLeftContextHuffmanCode.from_dict(prior_payload)
+        learned_codec_name = "static_left_context_huffman"
+    elif prior_codec == "static_ans":
+        code = StaticANSCode.from_dict(prior_payload)
+        learned_codec_name = "static_ans"
+    else:
+        code = StaticHuffmanCode.from_dict(prior_payload)
+        learned_codec_name = "static_huffman"
     if code.codebook_size != cfg.codebook_size:
         raise ValueError("prior codebook_size does not match checkpoint")
 
@@ -158,10 +187,10 @@ def main() -> None:
         stream_dir.mkdir(parents=True, exist_ok=True)
 
     buckets = {
-        "static_huffman": {"payload_bpp": [], "actual_bpp": [], "stream_bytes": [], "payload_bytes": [], "psnr": [], "l1": [], "ms_ssim": [], "roundtrip": []},
+        learned_codec_name: {"payload_bpp": [], "actual_bpp": [], "stream_bytes": [], "payload_bytes": [], "psnr": [], "l1": [], "ms_ssim": [], "roundtrip": []},
         "fixed_bits": {"payload_bpp": [], "actual_bpp": [], "stream_bytes": [], "payload_bytes": [], "psnr": [], "l1": [], "ms_ssim": [], "roundtrip": []},
     }
-    coder = CoSERBitstream()
+    coder = CoSERBitstream(header_codec=args.stream_header_codec, checksum_codec=args.stream_checksum_codec)
     sample_written = False
 
     with torch.no_grad():
@@ -173,12 +202,12 @@ def main() -> None:
                 x_i = x[image_index : image_index + 1]
                 indices = indices_batch[image_index]
                 payloads = {
-                    "static_huffman": code.encode(indices),
+                    learned_codec_name: code.encode(indices),
                     "fixed_bits": encode_semantic_tokens(indices, codebook_size=cfg.codebook_size, codec="fixed_bits"),
                 }
                 for codec_name, token_payload in payloads.items():
                     header = CoSERHeader(
-                        codec_version="stage2-static-huffman-mvp",
+                        codec_version="s2sth0",
                         image_height=int(x_i.shape[-2]),
                         image_width=int(x_i.shape[-1]),
                         padded_height=int(x_i.shape[-2]),
@@ -188,12 +217,12 @@ def main() -> None:
                         perception_level_id=0,
                         semantic_shape=tuple(int(v) for v in indices.shape),
                         detail_shape=(0,),
-                        entropy_model_version=f"semantic-token-{codec_name}-v0",
+                        entropy_model_version=f"s2sem-{codec_header_id(codec_name)}",
                         cdf_precision=0,
                     )
                     stream = coder.pack(header, semantic_tokens=token_payload)
                     unpacked = coder.unpack(stream)
-                    if codec_name == "static_huffman":
+                    if codec_name == learned_codec_name:
                         decoded = code.decode(unpacked.semantic_tokens, shape=tuple(unpacked.header.semantic_shape))
                     else:
                         decoded = decode_semantic_tokens(
@@ -214,8 +243,8 @@ def main() -> None:
                     bucket["roundtrip"].append(float(torch.equal(decoded, indices)))
                     if args.save_bitstreams:
                         (stream_dir / f"batch{batch_index:04d}_img{image_index:02d}_{codec_name}.coser").write_bytes(stream)
-                    if not sample_written and codec_name == "static_huffman":
-                        sample_path = out_dir / "stage2_static_huffman_recon_grid.png"
+                    if not sample_written and codec_name == learned_codec_name:
+                        sample_path = out_dir / f"stage2_{learned_codec_name}_recon_grid.png"
                         save_image(torch.cat([x_i.detach().cpu(), x_hat.detach().cpu()], dim=0), sample_path, nrow=1)
                         sample_written = True
 
@@ -225,13 +254,15 @@ def main() -> None:
         "num_images": len(dataset),
         "crop_size": args.crop_size,
         "codebook_size": cfg.codebook_size,
+        "stream_header_codec": args.stream_header_codec,
+        "stream_checksum_codec": args.stream_checksum_codec,
     }
     for codec_name, metrics in buckets.items():
         for metric_name, values in metrics.items():
             summary[f"{codec_name}_{metric_name}_mean"] = mean(values)
         summary[f"{codec_name}_all_tokens_roundtrip"] = bool(all(v == 1.0 for v in metrics["roundtrip"]))
-    summary["static_huffman_payload_bpp_delta_vs_fixed_bits"] = (
-        float(summary["static_huffman_payload_bpp_mean"]) - float(summary["fixed_bits_payload_bpp_mean"])
+    summary[f"{learned_codec_name}_payload_bpp_delta_vs_fixed_bits"] = (
+        float(summary[f"{learned_codec_name}_payload_bpp_mean"]) - float(summary["fixed_bits_payload_bpp_mean"])
     )
 
     summary_path = out_dir / "summary.json"
@@ -243,7 +274,7 @@ def main() -> None:
         project="coserdic",
         name=run_name,
         mode=args.wandb_mode,
-        config={"checkpoint": str(checkpoint_path), "prior": str(args.prior), "roots": roots},
+        config={**vars(args), "checkpoint": str(checkpoint_path), "prior": str(args.prior), "roots": roots},
     )
     wandb_run.summary.update(summary)
     wandb_run.finish()

@@ -550,6 +550,46 @@ Recipe:
 4. Evaluate reconstruction and actual transmitted CoSERBitstream bpp.
 ```
 
+## Stage 2 Position Huffman Ablation
+
+Implementation:
+
+```text
+StaticPositionHuffmanCode
+scripts/fit_stage2_static_huffman_prior.py --prior-kind position
+```
+
+Runs:
+
+```text
+20260627_stage2_position_huffman_prior_512calib_from_stage1_best
+20260627_stage2_position_huffman_smooth1_512calib_kodak_eval
+20260627_stage2_position_huffman_prior_512calib_smooth0_from_stage1_best
+20260627_stage2_position_huffman_smooth0_512calib_kodak_eval
+20260627_stage2_position_huffman_prior_512calib_backoff256_from_stage1_best
+20260627_stage2_position_huffman_backoff256_512calib_kodak_eval
+```
+
+Kodak payload results:
+
+```text
+global static Huffman: 0.012054 bpp
+fixed_bits: 0.012695 bpp
+position smoothing=1: 0.012700 bpp
+position smoothing=0: 0.019918 bpp
+position global-backoff=256: 0.013514 bpp
+```
+
+Decision:
+
+```text
+Do not adopt position-conditioned static Huffman as the active Stage 2 prior.
+It overfits badly without smoothing and becomes nearly uniform with smoothing.
+The active Stage 2 entropy baseline remains global static Huffman. The next
+candidate should be a learned/contextual token model with RDVQ-style
+top-k/escape actual entropy coding, not per-position static codes.
+```
+
 ## Stage 1 Reference-Audit Re-evaluation
 
 Analysis run:
@@ -679,6 +719,52 @@ The next Stage 2 target is a CoSER-owned learned/contextual semantic token
 prior and then an RDVQ-style top-k/escape arithmetic or rANS coder. The JSON
 audit container overhead still dominates full-stream bpp, so payload bpp and
 full-stream bpp must continue to be reported separately.
+```
+
+Update:
+
+```text
+The active Stage 2 semantic-token baseline has moved from 256-image global
+static Huffman to 4096-image left-context static Huffman.
+
+Then-current active prior:
+  outputs/stage2_semantic_entropy/20260627_stage2_leftctx_huffman_top64_b4096_4096calib_oi_div2k_from_stage1_best/static_left_context_huffman_prior.json
+
+Current Kodak compact-header evaluation:
+  20260627_stage2_leftctx_huffman_top64_b4096_4096calib_oi_div2k_kodak_eval_compacthdr
+  wandb/offline-run-20260627_100231-92tm3m06
+
+payload_bpp: 0.011729
+full_stream_bpp: 0.071437
+fixed_bits_payload_bpp: 0.012695
+fixed_bits_full_stream_bpp: 0.072510
+token_roundtrip: true
+
+Static ANS was implemented and verified, but it is not the active coder for
+64-token semantic streams because per-image flush overhead makes it worse than
+Huffman in actual bytes.
+```
+
+Later Stage 2 update:
+
+```text
+The active Stage 2 semantic-token codec candidate has moved again, from
+4096-image left-context static Huffman to 32768-token learned top512/escape
+Huffman.
+
+Current active learned prior:
+  outputs/stage2_learned_entropy/20260627_stage2_learned_topk512_escape_huffman_fit_32768tokens_8kprior/learned_topk_escape_huffman_prior.json
+
+Current Kodak actual evaluation:
+  20260627_stage2_learned_topk512_escape_huffman_32768tokens_8kprior_kodak_eval_decodersched
+  wandb/offline-run-20260627_112242-0guschmm
+
+payload_bpp: 0.010722
+full_stream_bpp: 0.071172
+fixed_bits_payload_bpp: 0.012695
+previous left-context payload_bpp: 0.011729
+token_roundtrip: true
+roundtrip_failure_count: 0
 ```
 
 ## Stage 1 Reimplementation Decision

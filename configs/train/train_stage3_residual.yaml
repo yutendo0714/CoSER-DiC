@@ -7,6 +7,81 @@ experiment:
 model:
   load_stage2_checkpoint: null
   freeze_semantic_initially: true
+  active_semantic_prior: outputs/stage2_learned_entropy/20260627_stage2_learned_topk512_escape_huffman_fit_32768tokens_8kprior/learned_topk_escape_huffman_prior.json
+  active_token_prior_checkpoint: checkpoints/stage2_token_prior/20260627_stage2_token_prior_tf256_l4_8kstep_32768tokens_lr1e4_do02_es.pt
+  bootstrap_residual:
+    codec: uniform_residual_grid
+    downsample_factor: 32
+    bits: 5
+    value_range: 0.25
+    payload_codec: position_huffman
+    stream_header_codec: compact
+    stream_checksum_codec: crc32
+    stream_codec_version_id: s3urg0
+    prior: outputs/stage3_residual_entropy/20260627_stage3_residual_poshuff_d32_b5_r025_4096calib_oi_div2k/static_residual_grid_position_huffman_prior.json
+    kodak_semantic_payload_bpp: 0.010722
+    kodak_detail_payload_bpp: 0.008250
+    kodak_total_payload_bpp: 0.018972
+    kodak_full_stream_bpp: 0.031301
+    kodak_psnr_delta_vs_semantic_only: 0.3957
+    kodak_ms_ssim_delta_vs_semantic_only: 0.00576
+    kodak_residual_grid_clip_ratio: 0.0
+    kodak_detail_code_entropy_bits: 2.5877
+    div2k100_semantic_payload_bpp: 0.010425
+    div2k100_detail_payload_bpp: 0.008549
+    div2k100_total_payload_bpp: 0.018973
+    div2k100_full_stream_bpp: 0.031302
+    div2k100_psnr_delta_vs_semantic_only: 0.4601
+    div2k100_ms_ssim_delta_vs_semantic_only: 0.00537
+    clicval41_semantic_payload_bpp: 0.009906
+    clicval41_detail_payload_bpp: 0.007967
+    clicval41_total_payload_bpp: 0.017873
+    clicval41_full_stream_bpp: 0.030202
+    clicval41_psnr_delta_vs_semantic_only: 0.7171
+    clicval41_ms_ssim_delta_vs_semantic_only: 0.00370
+    low_rate_anchor_bits: 4
+    low_rate_anchor_payload_codec: position_huffman
+    low_rate_anchor_prior: outputs/stage3_residual_entropy/20260627_stage3_residual_poshuff_d32_b4_r025_4096calib_oi_div2k/static_residual_grid_position_huffman_prior.json
+    low_rate_anchor_kodak_detail_payload_bpp: 0.005483
+    low_rate_anchor_kodak_total_payload_bpp: 0.016205
+    low_rate_anchor_kodak_full_stream_bpp: 0.028534
+    low_rate_anchor_kodak_psnr_delta_vs_semantic_only: 0.3705
+    low_rate_anchor_div2k100_detail_payload_bpp: 0.005837
+    low_rate_anchor_div2k100_total_payload_bpp: 0.016262
+    low_rate_anchor_div2k100_full_stream_bpp: 0.028591
+    low_rate_anchor_div2k100_psnr_delta_vs_semantic_only: 0.3055
+    low_rate_anchor_div2k100_ms_ssim_delta_vs_semantic_only: 0.00403
+    low_rate_anchor_clicval41_detail_payload_bpp: 0.005267
+    low_rate_anchor_clicval41_total_payload_bpp: 0.015172
+    low_rate_anchor_clicval41_full_stream_bpp: 0.027502
+    low_rate_anchor_clicval41_psnr_delta_vs_semantic_only: 0.5649
+    low_rate_anchor_clicval41_ms_ssim_delta_vs_semantic_only: 0.00246
+    previous_json_header_b5_full_stream_bpp: 0.080399
+    previous_json_header_b4_full_stream_bpp: 0.077632
+    previous_compact_sha256_b5_full_stream_bpp: 0.037282
+    previous_compact_sha256_b4_full_stream_bpp: 0.034515
+    previous_compact_crc32_longid_b5_full_stream_bpp: 0.033864
+    previous_compact_crc32_longid_b4_full_stream_bpp: 0.031097
+    previous_global_huffman_b5_total_payload_bpp: 0.019007
+    previous_global_huffman_b4_total_payload_bpp: 0.016266
+    previous_zlib_total_payload_bpp: 0.019480
+  learned_residual_probe:
+    status: diagnostic_not_active
+    model: residual_detail_ae
+    detail_shape_256: [3, 8, 8]
+    quant_bits: 5
+    value_range: 0.25
+    no_rate_checkpoint: checkpoints/stage3_residual_autoencoder/20260627_stage3_residual_ae_d32_c3_b5_r025_2500step_norate_from500_fp32.pt
+    no_rate_kodak_detail_payload_bpp: 0.014648
+    no_rate_kodak_total_payload_bpp: 0.025370
+    no_rate_kodak_psnr_delta_vs_semantic_only: 0.2073
+    no_rate_kodak_ms_ssim_delta_vs_semantic_only: 0.01159
+    rate003_checkpoint: checkpoints/stage3_residual_autoencoder/20260627_stage3_residual_ae_d32_c3_b5_r025_1000step_rate003_from2500_fp32.pt
+    rate003_kodak_detail_payload_bpp: 0.004344
+    rate003_kodak_total_payload_bpp: 0.015066
+    rate003_kodak_psnr_delta_vs_semantic_only: 0.0112
+    rate003_kodak_ms_ssim_delta_vs_semantic_only: 0.00007
+    decision: keep_as_scaffold_until_explicit_entropy_objective_beats_static_huffman
   detail_encoder:
     input_channels: 12
     output_channels: 64
