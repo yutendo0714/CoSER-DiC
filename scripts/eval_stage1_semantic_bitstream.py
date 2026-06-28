@@ -143,7 +143,7 @@ def main() -> None:
     parser.add_argument("--allow-protocol-count-mismatch", action="store_true")
     parser.add_argument("--allow-nondeterministic-eval", action="store_true")
     parser.add_argument("--output-dir", default="results/bitstreams/stage1_semantic_vq")
-    parser.add_argument("--crop-size", type=int, default=256)
+    parser.add_argument("--crop-size", type=int, default=None)
     parser.add_argument("--max-images", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=4)
@@ -155,6 +155,11 @@ def main() -> None:
     parser.add_argument("--wandb-mode", default="offline")
     parser.add_argument("--run-name", default="")
     args = parser.parse_args()
+    protocol_default_crop_size = (
+        EVAL_PROTOCOLS[args.eval_protocol].default_crop_size if args.eval_protocol else None
+    )
+    if args.crop_size is None:
+        args.crop_size = int(protocol_default_crop_size or 256)
     if args.max_images is None:
         args.max_images = 0 if args.eval_protocol else 64
 
@@ -394,6 +399,10 @@ def main() -> None:
         "checkpoint": str(checkpoint_path),
         "num_images": len(dataset),
         "crop_size": args.crop_size,
+        "protocol_default_crop_size": protocol_default_crop_size,
+        "crop_size_matches_protocol_default": (
+            None if protocol_default_crop_size is None else int(args.crop_size) == int(protocol_default_crop_size)
+        ),
         "semantic_tokens_per_image": int(round(mean(semantic_token_counts))),
         "semantic_tokens_per_image_min": int(min(semantic_token_counts)) if semantic_token_counts else 0,
         "semantic_tokens_per_image_max": int(max(semantic_token_counts)) if semantic_token_counts else 0,

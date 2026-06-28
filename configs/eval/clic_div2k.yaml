@@ -12,7 +12,7 @@ datasets:
 protocol:
   default: coser_common_lic
   config: configs/eval/protocols.yaml
-  note: Use gencodec_reproduction for CLIC2020 test 428 comparisons; this config is the CoSER common LIC validation protocol.
+  note: Use cod_reproduction_512 for CLIC2020 test 428 / CoD 512-crop comparisons; this config is the CoSER common LIC validation protocol.
 
 evaluation:
   use_compress_decompress: true

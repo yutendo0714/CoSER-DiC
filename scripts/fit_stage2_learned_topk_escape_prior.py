@@ -131,9 +131,9 @@ def main() -> None:
         for image_index in range(targets_cpu.shape[0]):
             target_image = targets_cpu[image_index].reshape(h, w)
             topk_image = topk_indices[image_index].reshape(h, w, int(args.topk))
-            payload = code.encode(target_image, topk_image)
-            payload_bytes += len(payload)
-            unpadded_bits += code.encoded_bits(target_image, topk_image)
+            bits = code.encoded_bits(target_image, topk_image)
+            payload_bytes += (bits + 7) // 8
+            unpadded_bits += bits
 
     run_name = args.run_name or f"{Path(args.token_prior_checkpoint).stem}_topk{args.topk}_escape_huffman"
     out_dir = Path(args.output_dir) / run_name

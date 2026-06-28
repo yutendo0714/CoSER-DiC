@@ -48,7 +48,7 @@ def test_protocol_can_resolve_selected_dataset_subset_without_strict_counts(tmp_
     touch_image(dpl / "clic" / "mobile" / "test" / "m001.png")
 
     selections = resolve_eval_protocol(
-        "gencodec_reproduction",
+        "cod_reproduction_512",
         dpl_root=dpl,
         dataset_keys=["clic2020_test"],
         strict_expected_counts=False,
@@ -56,6 +56,21 @@ def test_protocol_can_resolve_selected_dataset_subset_without_strict_counts(tmp_
 
     assert len(selections) == 1
     assert [path.name for path in flatten_selection_paths(selections)] == ["p001.png", "m001.png"]
+
+
+def test_legacy_gencodec_protocol_alias_still_resolves(tmp_path: Path) -> None:
+    dpl = tmp_path / "dpl"
+    touch_image(dpl / "kodak" / "kodim01.png")
+
+    selections = resolve_eval_protocol(
+        "gencodec_reproduction",
+        dpl_root=dpl,
+        dataset_keys=["kodak"],
+        strict_expected_counts=False,
+    )
+
+    assert len(selections) == 1
+    assert selections[0].key == "kodak"
 
 
 def test_strict_count_validation_raises_on_incomplete_protocol(tmp_path: Path) -> None:

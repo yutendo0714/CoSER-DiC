@@ -18,7 +18,14 @@ from .semantic_vq import (
     SemanticVQAutoEncoder,
     SemanticVQConfig,
 )
-from .token_prior import CausalTokenPrior, CausalTokenPriorConfig, decoder_schedule_topk_indices, shifted_causal_inputs, topk_from_prefix
+from .token_prior import (
+    CausalTokenPrior,
+    CausalTokenPriorConfig,
+    decoder_prefix_topk_indices,
+    decoder_schedule_topk_indices,
+    shifted_causal_inputs,
+    topk_from_prefix,
+)
 
 __all__ = [
     "CoSERConditioningAdapter",
@@ -28,6 +35,7 @@ __all__ = [
     "ConditioningAdapterConfig",
     "CausalTokenPrior",
     "CausalTokenPriorConfig",
+    "decoder_prefix_topk_indices",
     "decoder_schedule_topk_indices",
     "DECODER_POSTPROCESS_MODES",
     "DifferentiableVQ",

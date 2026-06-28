@@ -47,12 +47,30 @@ scripts/export_worst_case_gallery.py
 # image-level FID/KID
 --reference-dir DIR --candidate-dir DIR
 
-# patch-FID/KID
+# single-grid diagnostic patch-FID/KID
 --patch-size 128 --patch-stride 128
+
+# CoD paper-style patch sampling
+--patch-protocol gencodec --gencodec-dataset-filter kodak
+--patch-protocol gencodec --gencodec-dataset-filter clic2020_test --gencodec-other-patch-size 128
+
+# CoD-Lite / GLC / DLF-style high-resolution patch sampling
+--patch-protocol gencodec --gencodec-dataset-filter clic2020_test --gencodec-other-patch-size 256
+--patch-protocol gencodec --gencodec-dataset-filter div2k_val
 ```
 
 The patch mode writes an explicit patch cache and records the number of images
-and patches used, so CoD/CoD-Lite-style patch-FID comparisons can be labeled.
+and patches used. The legacy `--patch-size 128 --patch-stride 128` path is an
+internal single-grid diagnostic. CoD/CoD-Lite-style patch FID must be run per
+dataset and labeled with the exact patch size. Kodak512 uses 64px patches with
+a 32px shifted second grid. CoD paper CLIC2020 512-crop uses 128px patches with
+a 64px shifted second grid. CoD-Lite/GLC/DLF-style CLIC or DIV2K settings often
+use 256px patches with a 128px shifted second grid. This patch sampling is for
+FID/KID only; PSNR, LPIPS, and DISTS remain image-level.
+
+Current backend note: the CoSER utility computes FID/KID with `torch_fidelity`.
+GenCodec's external scripts use `torchmetrics.image.fid.FrechetInceptionDistance`.
+For paper tables, label both the patch sampling protocol and backend.
 
 ## Smoke Export
 
@@ -159,7 +177,8 @@ stage3 improvement:
   KID mean: -0.002850
 ```
 
-Patch-FID/KID, 128x128 non-overlapping patches, 660 patches:
+Patch-FID/KID, 128x128 non-overlapping patches, 660 patches
+(`torch_fidelity`, internal diagnostic; not CoD/CoD-Lite dataset-level patch FID):
 
 ```text
 semantic-only:
@@ -239,7 +258,9 @@ or semantic-token failures that the coarse residual grid cannot correct.
 Before promoting a Stage 4 generative model:
 
 1. Export the same reconstruction layout for Stage 4.
-2. Report image-level and patch-level FID/KID against the same crop-aligned
-   reference directories.
+2. Report image-level FID/KID and, for CoD/CoD-Lite comparisons, dataset-level
+   patch FID with explicit patch size, split count, and backend against the
+   same crop-aligned or full-resolution reference
+   directories.
 3. Generate worst-case galleries for LPIPS/DISTS regressions.
 4. Keep `actual_payload_bpp` separate from debug/full-file metrics.

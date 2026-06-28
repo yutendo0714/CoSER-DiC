@@ -53,8 +53,8 @@ protocols:
         - KID
     bpp: actual_payload_bpp
 
-  gencodec_reproduction:
-    purpose: GenCodec / CoD / CoD-Lite comparison table.
+  cod_reproduction_512:
+    purpose: CoD paper-style 512x512 comparison table. This is the primary CoSER low-bitrate generative comparison protocol while the codec is crop-based.
     datasets:
       - key: kodak
         name: Kodak
@@ -82,13 +82,51 @@ protocols:
       coserdic: actual_payload_bpp
       external_codec: label official nominal bpp, payload bpp, and codec file bpp separately
     preprocessing:
-      cod_style:
-        kodak: resized and center-cropped to 512x512 when reproducing CoD tables.
-        clic2020_test: resized and center-cropped to 512x512 for CoD, full resolution for CoD-Lite-style reporting.
-        div2k_val: resized and center-cropped to 512x512 for CoD-style appendix curves.
-      coserdic_current:
-        default: center crop controlled by --crop-size until full-resolution padding evaluation is implemented.
+      all_datasets: resize if needed and center-crop to 512x512.
+    fid:
+      cod_paper_patch_fid:
+        backend: label backend; official CoD uses torchmetrics FID in released scripts
+        fid_patch_num: 2
+        kodak: patch_size 64
+        clic2020_test: patch_size 128
+        div2k_val: report only with explicit patch size/backend label
     notes:
       - CLIC2020 test 428 is professional/test plus mobile/test, not CLIC Professional Validation 41.
       - DIV2K validation is filenames 0801.png through 0900.png when the local root is mixed.
       - Patch-based or overlapped-patch FID must be labeled in the table caption.
+
+  gencodec_reproduction:
+    purpose: Legacy alias for cod_reproduction_512 in old experiment commands. Prefer cod_reproduction_512 for new runs.
+    alias_of: cod_reproduction_512
+
+  cod_lite_official_fullres:
+    purpose: CoD-Lite official-code comparison table. This is a separate table, not a drop-in replacement for cod_reproduction_512.
+    runnable_by_current_crop_evaluators: false
+    datasets:
+      - key: kodak
+        name: Kodak512 / center-cropped Kodak
+        count: 24
+      - key: clic2020_test
+        name: CLIC2020 test
+        count: 428
+        preprocessing: full resolution
+      - key: div2k_val
+        name: DIV2K validation
+        count: 100
+        usage: appendix / additional results
+    metrics:
+      primary:
+        - LPIPS
+        - DISTS
+        - FID
+      optional:
+        - PSNR
+        - KID
+    fid:
+      cod_lite_readme_patch_fid:
+        fid_patch_num: 2
+        kodak512: patch_size 64
+        other_datasets: patch_size 256
+    notes:
+      - CoSER needs a full-resolution padding/tiling evaluator before this protocol can be used as a main result.
+      - Do not mix this full-resolution CLIC table with 512-crop CoD tables.

@@ -14,6 +14,7 @@ def test_topk_escape_huffman_roundtrip_with_escapes() -> None:
 
     assert torch.equal(decoded, targets)
     assert code.escape_count(targets, topk) == 2
+    assert len(payload) == (code.encoded_bits(targets, topk) + 7) // 8
 
 
 def test_topk_escape_huffman_provider_decode() -> None:
@@ -43,6 +44,40 @@ def test_topk_escape_huffman_serialization_roundtrip() -> None:
 
     assert restored.event_code.code_lengths == code.event_code.code_lengths
     assert torch.equal(restored.decode(restored.encode(targets, topk), topk_indices=topk, shape=tuple(targets.shape)), targets)
+
+
+def test_topk_escape_event_count_supports_batched_grids() -> None:
+    targets = torch.tensor([[[0, 3], [7, 2]], [[1, 4], [5, 6]]], dtype=torch.long)
+    topk = torch.tensor(
+        [
+            [[[0, 1], [1, 2]], [[3, 4], [2, 0]]],
+            [[[0, 1], [4, 2]], [[1, 5], [0, 6]]],
+        ],
+        dtype=torch.long,
+    )
+
+    counts = count_topk_escape_events(targets, topk, codebook_size=8, topk=2)
+
+    assert counts.tolist() == [3, 3, 2]
+
+
+def test_topk_escape_vectorized_bit_count_matches_payload_size() -> None:
+    targets = torch.tensor([[[0, 3], [7, 2]], [[1, 4], [5, 6]]], dtype=torch.long)
+    topk = torch.tensor(
+        [
+            [[[0, 1], [1, 2]], [[3, 4], [2, 0]]],
+            [[[0, 1], [4, 2]], [[1, 5], [0, 6]]],
+        ],
+        dtype=torch.long,
+    )
+    counts = count_topk_escape_events(targets, topk, codebook_size=8, topk=2)
+    code = TopKEscapeHuffmanCode.from_event_counts(counts, codebook_size=8, topk=2)
+
+    payload = code.encode(targets, topk)
+
+    assert code.events_from_targets(targets, topk) == [0, 2, 2, 0, 1, 0, 1, 1]
+    assert code.escape_count(targets, topk) == 2
+    assert len(payload) == (code.encoded_bits(targets, topk) + 7) // 8
 
 
 def test_topk_escape_can_beat_fixed_bits_when_hits_are_frequent() -> None:

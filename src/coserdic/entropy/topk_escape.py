@@ -84,13 +84,13 @@ class TopKEscapeHuffmanCode:
         }
 
     def events_from_targets(self, targets: torch.Tensor, topk_indices: torch.Tensor) -> list[int]:
-        target_values, topk_rows = _validate_targets_and_topk(
+        events = _topk_events_tensor(
             targets,
             topk_indices,
             codebook_size=self.codebook_size,
             topk=self.topk,
         )
-        return [_event_for_target(target, row, self.topk) for target, row in zip(target_values, topk_rows)]
+        return [int(v) for v in events.tolist()]
 
     def encode(self, targets: torch.Tensor, topk_indices: torch.Tensor) -> bytes:
         target_values, topk_rows = _validate_targets_and_topk(
@@ -141,16 +141,25 @@ class TopKEscapeHuffmanCode:
         return torch.tensor(values, dtype=torch.long).reshape(shape)
 
     def encoded_bits(self, targets: torch.Tensor, topk_indices: torch.Tensor) -> int:
-        events = self.events_from_targets(targets, topk_indices)
-        bits = 0
-        for event in events:
-            bits += self.event_code.code_lengths[event]
-            if event == self.topk:
-                bits += self.token_bits
-        return int(bits)
+        events = _topk_events_tensor(
+            targets,
+            topk_indices,
+            codebook_size=self.codebook_size,
+            topk=self.topk,
+        )
+        code_lengths = torch.tensor(self.event_code.code_lengths, dtype=torch.long)
+        bits = int(code_lengths[events].sum().item())
+        bits += int((events == self.topk).sum().item()) * int(self.token_bits)
+        return bits
 
     def escape_count(self, targets: torch.Tensor, topk_indices: torch.Tensor) -> int:
-        return sum(1 for event in self.events_from_targets(targets, topk_indices) if event == self.topk)
+        events = _topk_events_tensor(
+            targets,
+            topk_indices,
+            codebook_size=self.codebook_size,
+            topk=self.topk,
+        )
+        return int((events == self.topk).sum().item())
 
     def _decode_next_token(self, reader: _BitReader, topk_row: Sequence[int]) -> int:
         event = reader.read_huffman(self.event_code)
@@ -169,16 +178,61 @@ def count_topk_escape_events(
     codebook_size: int,
     topk: int,
 ) -> torch.Tensor:
-    target_values, topk_rows = _validate_targets_and_topk(
+    events = _topk_events_tensor(
         targets,
         topk_indices,
         codebook_size=codebook_size,
         topk=topk,
     )
-    counts = torch.zeros(int(topk) + 1, dtype=torch.long)
-    for target, row in zip(target_values, topk_rows):
-        counts[_event_for_target(target, row, topk)] += 1
-    return counts
+    return torch.bincount(events, minlength=int(topk) + 1).to(torch.long)
+
+
+def _topk_events_tensor(
+    targets: torch.Tensor,
+    topk_indices: torch.Tensor,
+    *,
+    codebook_size: int,
+    topk: int,
+) -> torch.Tensor:
+    if int(topk) <= 0:
+        raise ValueError("topk must be positive")
+    if int(codebook_size) <= 1:
+        raise ValueError("codebook_size must be greater than 1")
+
+    target_tensor = torch.as_tensor(targets)
+    topk_tensor = torch.as_tensor(topk_indices)
+    if target_tensor.numel() == 0:
+        raise ValueError("targets must be non-empty")
+    if torch.is_floating_point(target_tensor) or torch.is_complex(target_tensor):
+        raise TypeError("targets must be an integer tensor")
+    if torch.is_floating_point(topk_tensor) or torch.is_complex(topk_tensor):
+        raise TypeError("topk_indices must be an integer tensor")
+    if topk_tensor.ndim < 2 or int(topk_tensor.shape[-1]) != int(topk):
+        raise ValueError("topk_indices must have shape [..., topk]")
+
+    target_values = target_tensor.detach().cpu().to(torch.long).reshape(-1)
+    expected_tokens = int(target_values.numel())
+    if math.prod(tuple(int(v) for v in topk_tensor.shape[:-1])) != expected_tokens:
+        raise ValueError("topk_indices leading shape must match target token count")
+    topk_rows = topk_tensor.detach().cpu().to(torch.long).reshape(expected_tokens, int(topk))
+
+    target_min = int(target_values.min().item())
+    target_max = int(target_values.max().item())
+    if target_min < 0 or target_max >= int(codebook_size):
+        raise ValueError(
+            f"semantic token out of range for codebook_size={codebook_size}: "
+            f"min={target_min}, max={target_max}"
+        )
+    topk_min = int(topk_rows.min().item())
+    topk_max = int(topk_rows.max().item())
+    if topk_min < 0 or topk_max >= int(codebook_size):
+        raise ValueError("topk row contains token outside codebook range")
+
+    matches = topk_rows.eq(target_values.unsqueeze(1))
+    has_match = matches.any(dim=1)
+    ranks = matches.to(torch.int64).argmax(dim=1)
+    escape = torch.full_like(ranks, fill_value=int(topk))
+    return torch.where(has_match, ranks, escape)
 
 
 def _event_for_target(target: int, topk_row: Sequence[int], topk: int) -> int:

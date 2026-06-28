@@ -21,5 +21,6 @@ pytorch-msssim>=1.0.0
 lpips>=0.1.4
 DISTS-pytorch>=0.1
 torch-fidelity>=0.3.0
+torchmetrics>=1.4.0
 pytest>=8.0
 ruff>=0.5

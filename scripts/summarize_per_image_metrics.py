@@ -11,6 +11,7 @@ DEFAULT_METRICS = (
     "semantic_payload_bpp",
     "detail_payload_bpp",
     "actual_payload_bpp",
+    "paper_bpp",
     "debug_full_stream_bpp",
     "semantic_only_psnr",
     "stage3_psnr",
@@ -29,7 +30,11 @@ DEFAULT_METRICS = (
     "residual_grid_std",
     "residual_grid_clip_ratio",
     "detail_code_entropy_bits",
+    "semantic_token_roundtrip",
+    "detail_code_roundtrip",
 )
+
+GROUPINGS = ("path", "cod_reproduction_512", "gencodec_reproduction")
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -73,6 +78,17 @@ def dataset_key(path_value: str) -> str:
     return "unknown"
 
 
+def grouped_dataset_key(path_value: str, grouping: str) -> str:
+    key = dataset_key(path_value)
+    if grouping == "path":
+        return key
+    if grouping in {"cod_reproduction_512", "gencodec_reproduction"}:
+        if key in {"clic2020_test_professional", "clic2020_test_mobile"}:
+            return "clic2020_test"
+        return key
+    raise ValueError(f"unknown grouping: {grouping}")
+
+
 def mean(values: list[float]) -> float:
     return float(sum(values) / max(len(values), 1))
 
@@ -87,15 +103,26 @@ def std(values: list[float]) -> float:
 def summarize_rows(rows: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[str, Any]:
     summary: dict[str, Any] = {"count": len(rows)}
     for metric in metrics:
-        values = [float(row[metric]) for row in rows if metric in row]
+        metric_values = [row[metric] for row in rows if metric in row]
+        values = [float(value) for value in metric_values]
         if not values:
             continue
-        summary[metric] = {
+        metric_summary: dict[str, Any] = {
             "mean": mean(values),
             "std": std(values),
             "min": min(values),
             "max": max(values),
         }
+        if all(isinstance(value, bool) for value in metric_values):
+            true_count = sum(1 for value in metric_values if bool(value))
+            metric_summary.update(
+                {
+                    "all_true": true_count == len(metric_values),
+                    "true_count": true_count,
+                    "false_count": len(metric_values) - true_count,
+                }
+            )
+        summary[metric] = metric_summary
     return summary
 
 
@@ -104,6 +131,7 @@ def main() -> None:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--label", default="")
     parser.add_argument("--metric", action="append", default=None)
+    parser.add_argument("--grouping", choices=GROUPINGS, default="path")
     parser.add_argument("--output-json", type=Path, default=None)
     args = parser.parse_args()
 
@@ -111,11 +139,12 @@ def main() -> None:
     metrics = tuple(args.metric) if args.metric else DEFAULT_METRICS
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        groups.setdefault(dataset_key(str(row["path"])), []).append(row)
+        groups.setdefault(grouped_dataset_key(str(row["path"]), args.grouping), []).append(row)
 
     payload = {
         "label": args.label or args.input.parent.name,
         "input": str(args.input),
+        "grouping": args.grouping,
         "overall": summarize_rows(rows, metrics),
         "by_dataset": {key: summarize_rows(group_rows, metrics) for key, group_rows in sorted(groups.items())},
     }

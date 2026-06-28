@@ -94,12 +94,58 @@ def decoder_schedule_topk_indices(
     topk: int,
     device: torch.device,
 ) -> torch.Tensor:
-    """Build top-k rows with the exact prefix schedule used by decoding."""
+    """Build teacher-forced top-k rows in one causal forward pass.
 
-    flat_values = [int(v) for v in indices.detach().cpu().reshape(-1).to(torch.long).tolist()]
-    prefix: list[int] = []
-    rows: list[list[int]] = []
-    for target in flat_values:
-        rows.append(topk_from_prefix(model, prefix, topk=topk, device=device))
-        prefix.append(int(target))
-    return torch.tensor(rows, dtype=torch.long).reshape(*indices.shape, int(topk))
+    This is suitable for entropy-prior fitting and diagnostics. Actual
+    bitstream encoding should use :func:`decoder_prefix_topk_indices` so the
+    encoder uses exactly the same per-prefix computation as the decoder.
+    """
+
+    values = indices.detach().cpu().to(torch.long)
+    if values.ndim == 2:
+        batched = values.unsqueeze(0)
+        squeeze_batch = True
+    elif values.ndim == 3:
+        batched = values
+        squeeze_batch = False
+    else:
+        raise ValueError("indices must have shape [H, W] or [B, H, W]")
+    seq = batched.reshape(batched.shape[0], -1).to(device=device, dtype=torch.long)
+    inputs = shifted_causal_inputs(seq, bos_token_id=model.bos_token_id)
+    logits = model(inputs)
+    topk_indices = torch.topk(logits, k=int(topk), dim=-1).indices.detach().cpu()
+    topk_grid = topk_indices.reshape(*batched.shape, int(topk))
+    return topk_grid.squeeze(0) if squeeze_batch else topk_grid
+
+
+@torch.no_grad()
+def decoder_prefix_topk_indices(
+    model: CausalTokenPrior,
+    indices: torch.Tensor,
+    *,
+    topk: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Build decoder-rebuildable top-k rows by replaying the prefix loop."""
+
+    values = indices.detach().cpu().to(torch.long)
+    if values.ndim == 2:
+        batched = values.unsqueeze(0)
+        squeeze_batch = True
+    elif values.ndim == 3:
+        batched = values
+        squeeze_batch = False
+    else:
+        raise ValueError("indices must have shape [H, W] or [B, H, W]")
+
+    rows_by_image: list[torch.Tensor] = []
+    for image_tokens in batched.reshape(batched.shape[0], -1):
+        prefix: list[int] = []
+        rows: list[list[int]] = []
+        for token in image_tokens.tolist():
+            rows.append(topk_from_prefix(model, prefix, topk=topk, device=device))
+            prefix.append(int(token))
+        rows_by_image.append(torch.tensor(rows, dtype=torch.long).reshape(*batched.shape[1:], int(topk)))
+
+    stacked = torch.stack(rows_by_image, dim=0)
+    return stacked.squeeze(0) if squeeze_batch else stacked

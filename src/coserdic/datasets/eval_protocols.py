@@ -81,17 +81,34 @@ EVAL_PROTOCOLS: dict[str, EvalProtocolSpec] = {
             "The CLIC validation splits are not the CLIC2020 test set used by GenCodec/CoD-style reproduction.",
         ),
     ),
-    "gencodec_reproduction": EvalProtocolSpec(
-        name="gencodec_reproduction",
-        display_name="GenCodec / CoD / CoD-Lite reproduction protocol",
+    "cod_reproduction_512": EvalProtocolSpec(
+        name="cod_reproduction_512",
+        display_name="CoD paper reproduction protocol, 512x512",
         dataset_keys=("kodak", "clic2020_test", "div2k_val"),
         primary_metrics=("PSNR", "LPIPS", "DISTS", "FID"),
         bpp_metric="actual_payload_bpp for CoSER; official nominal/file bpp must be labeled for external codecs",
         default_crop_size=512,
         notes=(
+            "Primary CoSER low-bitrate generative comparison protocol for CoD-style tables.",
+            "Resize if needed and center-crop every image to 512x512 before evaluation.",
             "Use CLIC2020 test 428 as professional/test plus mobile/test.",
             "Use DIV2K validation images 0801-0900, not the first 100 files from a mixed DIV2K root.",
-            "Patch-based or overlapped-patch FID must be labeled when matching CoD/CoD-Lite.",
+            "For CoD paper patch FID, run per dataset and label exact settings: Kodak512 uses 64px patches with split=2; CLIC2020 uses 128px patches with split=2.",
+            "DIV2K patch FID should be reported only when the chosen patch size/backend is explicitly labeled.",
+            "Patch-based or overlapped-patch FID must label patch size, shift/split count, and backend.",
+        ),
+    ),
+    "gencodec_reproduction": EvalProtocolSpec(
+        name="gencodec_reproduction",
+        display_name="Legacy alias for CoD 512 reproduction protocol",
+        dataset_keys=("kodak", "clic2020_test", "div2k_val"),
+        primary_metrics=("PSNR", "LPIPS", "DISTS", "FID"),
+        bpp_metric="actual_payload_bpp for CoSER; official nominal/file bpp must be labeled for external codecs",
+        default_crop_size=512,
+        notes=(
+            "Legacy name retained for old experiment commands. Prefer cod_reproduction_512 for new runs.",
+            "Same dataset and 512x512 center-crop preprocessing as cod_reproduction_512.",
+            "Do not use this name for CoD-Lite full-resolution comparison tables.",
         ),
     ),
 }

@@ -25,7 +25,7 @@ from coserdic.models import (
     ResidualDetailConfig,
     SemanticVQAutoEncoder,
     SemanticVQConfig,
-    decoder_schedule_topk_indices,
+    decoder_prefix_topk_indices,
     topk_from_prefix,
 )
 from coserdic.utils import seed_everything
@@ -104,7 +104,7 @@ def encode_semantic_payload(
     *,
     device: torch.device,
 ) -> tuple[bytes, dict[str, float]]:
-    topk_indices = decoder_schedule_topk_indices(token_prior, indices, topk=code.topk, device=device)
+    topk_indices = decoder_prefix_topk_indices(token_prior, indices, topk=code.topk, device=device)
     payload = code.encode(indices.detach().cpu(), topk_indices)
     escape_count = code.escape_count(indices.detach().cpu(), topk_indices)
     return payload, {
@@ -463,6 +463,7 @@ def main() -> None:
         "num_images": len(dataset),
         "crop_size": int(args.crop_size),
         "semantic_topk": int(semantic_code.topk),
+        "semantic_topk_schedule": "prefix_replay_decoder_safe",
         "detail_shape": [int(detail_cfg.detail_channels), args.crop_size // 32, args.crop_size // 32],
         "detail_bits": int(detail_cfg.quant_bits),
         "detail_range": float(detail_cfg.value_range),

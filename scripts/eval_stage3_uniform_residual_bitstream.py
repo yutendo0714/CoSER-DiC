@@ -43,7 +43,7 @@ from coserdic.models import (
     SemanticVQAutoEncoder,
     SemanticVQConfig,
     apply_decoder_postprocess,
-    decoder_schedule_topk_indices,
+    decoder_prefix_topk_indices,
     topk_from_prefix,
 )
 from coserdic.utils import seed_everything
@@ -134,7 +134,7 @@ def encode_semantic_payload(
     *,
     device: torch.device,
 ) -> tuple[bytes, dict[str, float]]:
-    topk_indices = decoder_schedule_topk_indices(token_prior, indices, topk=code.topk, device=device)
+    topk_indices = decoder_prefix_topk_indices(token_prior, indices, topk=code.topk, device=device)
     payload = code.encode(indices.detach().cpu(), topk_indices)
     escape_count = code.escape_count(indices.detach().cpu(), topk_indices)
     return payload, {
@@ -305,7 +305,7 @@ def main() -> None:
     parser.add_argument("--allow-protocol-count-mismatch", action="store_true")
     parser.add_argument("--allow-nondeterministic-eval", action="store_true")
     parser.add_argument("--output-dir", default="results/bitstreams/stage3_uniform_residual")
-    parser.add_argument("--crop-size", type=int, default=256)
+    parser.add_argument("--crop-size", type=int, default=None)
     parser.add_argument("--max-images", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=4)
@@ -340,6 +340,11 @@ def main() -> None:
     parser.add_argument("--wandb-mode", default="offline")
     parser.add_argument("--run-name", default="")
     args = parser.parse_args()
+    protocol_default_crop_size = (
+        EVAL_PROTOCOLS[args.eval_protocol].default_crop_size if args.eval_protocol else None
+    )
+    if args.crop_size is None:
+        args.crop_size = int(protocol_default_crop_size or 256)
     if args.max_images is None:
         args.max_images = 0 if args.eval_protocol else 24
 
@@ -793,7 +798,12 @@ def main() -> None:
         "token_prior_checkpoint": str(token_prior_value),
         "num_images": len(dataset),
         "crop_size": int(args.crop_size),
+        "protocol_default_crop_size": protocol_default_crop_size,
+        "crop_size_matches_protocol_default": (
+            None if protocol_default_crop_size is None else int(args.crop_size) == int(protocol_default_crop_size)
+        ),
         "semantic_topk": int(semantic_code.topk),
+        "semantic_topk_schedule": "prefix_replay_decoder_safe",
         "detail_downsample_factor": int(args.detail_downsample_factor),
         "detail_shape": [3, int(detail_hw), int(detail_hw)],
         "detail_bits": int(args.detail_bits),
