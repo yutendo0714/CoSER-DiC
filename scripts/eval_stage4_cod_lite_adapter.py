@@ -18,6 +18,8 @@ from coserdic.metrics import PerceptualMetricBundle
 from coserdic.models import (
     CoDLiteOneStepBackbone,
     CoDLiteOneStepBackboneConfig,
+    CoSERToCoDLiteAlphaGate,
+    CoSERToCoDLiteAlphaGateConfig,
     CoSERToCoDLiteConditionAdapter,
     CoSERToCoDLiteConditionAdapterConfig,
     CoSERToCoDLiteConditionPyramidAdapter,
@@ -161,6 +163,11 @@ def build_adapter_from_payload(
     raise ValueError(f"unknown adapter_kind in checkpoint: {adapter_kind}")
 
 
+def build_gate_from_payload(payload: dict[str, object]) -> CoSERToCoDLiteAlphaGate:
+    gate_config = dict(payload["gate_config"])
+    return CoSERToCoDLiteAlphaGate(CoSERToCoDLiteAlphaGateConfig(**gate_config))
+
+
 def write_run_doc(path: Path, payload: dict[str, object]) -> None:
     lines = [
         f"# {payload['run_name']}",
@@ -188,6 +195,7 @@ def write_run_doc(path: Path, payload: dict[str, object]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--gate-checkpoint", default="")
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--per-image-metrics", default="")
     parser.add_argument("--run-name", default="")
@@ -236,6 +244,13 @@ def main() -> None:
     adapter = build_adapter_from_payload(payload).to(device)
     adapter.load_state_dict(payload["model"])
     adapter.eval()
+    gate = None
+    gate_payload: dict[str, object] = {}
+    if args.gate_checkpoint:
+        gate_payload = torch.load(args.gate_checkpoint, map_location="cpu", weights_only=False)
+        gate = build_gate_from_payload(gate_payload).to(device)
+        gate.load_state_dict(gate_payload["gate_model"])
+        gate.eval()
     adapter_config = dict(payload.get("adapter_config", {}))
     semantic_channels = int(adapter_config.get("semantic_channels", 3))
     detail_context = str(payload.get("detail_context", "none"))
@@ -265,6 +280,7 @@ def main() -> None:
         {
             "stage": "stage4_cod_lite_adapter_eval",
             "checkpoint": args.checkpoint,
+            "gate_checkpoint": args.gate_checkpoint,
             "manifest": args.manifest,
             "per_image_metrics": args.per_image_metrics,
             "crop_size": args.crop_size,
@@ -299,6 +315,7 @@ def main() -> None:
         "condition_l1_delta_vs_base": [],
         "condition_residual_l1": [],
         "condition_delta_raw_l1": [],
+        "stage4_alpha": [],
     }
     per_image: list[dict[str, object]] = []
 
@@ -332,7 +349,20 @@ def main() -> None:
                     residual_tanh=residual_tanh,
                 )
                 stage4_raw = backbone(stage3, pred_cond)
-                stage4 = ((1.0 - args.blend_alpha) * stage3 + args.blend_alpha * stage4_raw).clamp(0, 1)
+                if gate is None:
+                    alpha = stage3.new_full((stage3.shape[0], 1, 1, 1), float(args.blend_alpha))
+                else:
+                    alpha = gate(
+                        stage3,
+                        semantic,
+                        residual,
+                        semantic_latent,
+                        condition_size=condition_size,
+                        base_condition=base_cond,
+                        condition_residual=pred_cond - base_cond,
+                        detail_context=detail_context_tensor,
+                    )
+                stage4 = ((1.0 - alpha) * stage3 + alpha * stage4_raw).clamp(0, 1)
             condition_l1 = torch.mean(torch.abs((pred_cond - target_cond).float()), dim=(1, 2, 3))
             base_condition_l1 = torch.mean(torch.abs((base_cond - target_cond).float()), dim=(1, 2, 3))
             condition_residual_l1 = torch.mean(torch.abs((pred_cond - base_cond).float()), dim=(1, 2, 3))
@@ -376,6 +406,7 @@ def main() -> None:
                     "condition_l1_delta_vs_base": float(condition_l1[item].item() - base_condition_l1[item].item()),
                     "condition_residual_l1": float(condition_residual_l1[item].item()),
                     "condition_delta_raw_l1": float(condition_delta_raw_l1[item].item()),
+                    "stage4_alpha": float(alpha[item].item()),
                 }
                 per_image.append(row)
                 for key in metrics:
@@ -418,11 +449,17 @@ def main() -> None:
             ),
             "stage4_dists_win_rate": mean([1.0 if r["stage4_dists_delta_vs_stage3"] < 0 else 0.0 for r in per_image]),
             "stage4_blend_alpha": args.blend_alpha,
+            "stage4_alpha_min": min(metrics["stage4_alpha"]) if metrics["stage4_alpha"] else 0.0,
+            "stage4_alpha_max": max(metrics["stage4_alpha"]) if metrics["stage4_alpha"] else 0.0,
+            "stage4_alpha_std": float(torch.tensor(metrics["stage4_alpha"]).std(unbiased=False).item())
+            if metrics["stage4_alpha"]
+            else 0.0,
+            "stage4_gate_checkpoint": args.gate_checkpoint,
             "condition_residual_scale": residual_scale,
             "condition_residual_tanh": residual_tanh,
             "stage4_payload_policy": (
                 "inherits Stage 3 semantic/detail actual_payload_bpp; fixed CoD-Lite weights, adapter, "
-                "and deterministic decoder-side blend alpha are not image-specific side information"
+                "and deterministic decoder-side blend/gate alpha are not image-specific side information"
             ),
         }
     )

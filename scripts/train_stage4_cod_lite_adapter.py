@@ -127,6 +127,44 @@ def psnr(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return -10.0 * torch.log10(mse)
 
 
+def condition_cosine_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    cosine = F.cosine_similarity(pred.float().flatten(1), target.float().flatten(1), dim=1, eps=1.0e-8)
+    return 1.0 - cosine.mean()
+
+
+def condition_channel_stats_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    pred_f = pred.float()
+    target_f = target.float()
+    pred_mean = pred_f.mean(dim=(2, 3))
+    target_mean = target_f.mean(dim=(2, 3))
+    pred_std = pred_f.std(dim=(2, 3), unbiased=False)
+    target_std = target_f.std(dim=(2, 3), unbiased=False)
+    return F.l1_loss(pred_mean, target_mean) + F.l1_loss(pred_std, target_std)
+
+
+def condition_highfreq_ratio(tensor: torch.Tensor, threshold: float = 0.25) -> torch.Tensor:
+    x = tensor.float()
+    x = x - x.mean(dim=(-2, -1), keepdim=True)
+    spectrum = torch.fft.rfft2(x, norm="ortho")
+    power = spectrum.abs().square()
+    height = int(x.shape[-2])
+    width = int(x.shape[-1])
+    freq_y = torch.fft.fftfreq(height, device=x.device).abs().view(height, 1)
+    freq_x = torch.fft.rfftfreq(width, device=x.device).abs().view(1, width // 2 + 1)
+    radius = torch.sqrt(freq_y.square() + freq_x.square())
+    high_mask = radius >= threshold
+    total = power.sum(dim=(-2, -1)).clamp_min(1.0e-12)
+    high = power[..., high_mask].sum(dim=-1)
+    return high / total
+
+
+def condition_highfreq_loss(pred: torch.Tensor, target: torch.Tensor, *, threshold: float) -> torch.Tensor:
+    return F.l1_loss(
+        condition_highfreq_ratio(pred, threshold=threshold),
+        condition_highfreq_ratio(target, threshold=threshold),
+    )
+
+
 def apply_condition_residual(
     base_condition: torch.Tensor,
     cond_delta: torch.Tensor,
@@ -211,6 +249,10 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=2.0e-4)
     parser.add_argument("--condition-l1-weight", type=float, default=1.0)
+    parser.add_argument("--condition-cosine-weight", type=float, default=0.0)
+    parser.add_argument("--condition-channel-stats-weight", type=float, default=0.0)
+    parser.add_argument("--condition-highfreq-weight", type=float, default=0.0)
+    parser.add_argument("--condition-highfreq-threshold", type=float, default=0.25)
     parser.add_argument("--image-l1-weight", type=float, default=0.25)
     parser.add_argument("--lpips-weight", type=float, default=0.0)
     parser.add_argument("--condition-residual-scale", type=float, default=1.0)
@@ -300,6 +342,10 @@ def main() -> None:
             "effective_batch_size": args.batch_size * args.grad_accum_steps,
             "condition_residual_scale": args.condition_residual_scale,
             "condition_residual_tanh": args.condition_residual_tanh,
+            "condition_cosine_weight": args.condition_cosine_weight,
+            "condition_channel_stats_weight": args.condition_channel_stats_weight,
+            "condition_highfreq_weight": args.condition_highfreq_weight,
+            "condition_highfreq_threshold": args.condition_highfreq_threshold,
             "grad_clip_norm": args.grad_clip_norm,
             "init_checkpoint": args.init_checkpoint,
             "lpips_weight": args.lpips_weight,
@@ -319,6 +365,9 @@ def main() -> None:
     metrics: dict[str, list[float]] = {
         "loss": [],
         "condition_l1": [],
+        "condition_cosine_loss": [],
+        "condition_channel_stats_loss": [],
+        "condition_highfreq_loss": [],
         "image_l1": [],
         "lpips": [],
         "stage4_psnr": [],
@@ -376,6 +425,22 @@ def main() -> None:
                 residual_tanh=args.condition_residual_tanh,
             )
             condition_l1 = F.l1_loss(pred_cond.float(), target_cond.float())
+            if args.condition_cosine_weight > 0:
+                condition_cos = condition_cosine_loss(pred_cond, target_cond)
+            else:
+                condition_cos = condition_l1.new_tensor(0.0)
+            if args.condition_channel_stats_weight > 0:
+                condition_stats = condition_channel_stats_loss(pred_cond, target_cond)
+            else:
+                condition_stats = condition_l1.new_tensor(0.0)
+            if args.condition_highfreq_weight > 0:
+                condition_hf = condition_highfreq_loss(
+                    pred_cond,
+                    target_cond,
+                    threshold=args.condition_highfreq_threshold,
+                )
+            else:
+                condition_hf = condition_l1.new_tensor(0.0)
             if use_image_decode_loss:
                 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                     stage4 = backbone(stage3, pred_cond)
@@ -393,6 +458,9 @@ def main() -> None:
                     ).mean()
             loss = (
                 args.condition_l1_weight * condition_l1
+                + args.condition_cosine_weight * condition_cos
+                + args.condition_channel_stats_weight * condition_stats
+                + args.condition_highfreq_weight * condition_hf
                 + args.image_l1_weight * image_l1
                 + args.lpips_weight * lpips_loss
             )
@@ -409,6 +477,9 @@ def main() -> None:
             row = {
                 "loss": float(loss.item()),
                 "condition_l1": float(condition_l1.item()),
+                "condition_cosine_loss": float(condition_cos.item()),
+                "condition_channel_stats_loss": float(condition_stats.item()),
+                "condition_highfreq_loss": float(condition_hf.item()),
                 "image_l1": float(image_l1.item()),
                 "lpips": float(lpips_loss.item()),
                 "stage4_psnr": float(stage4_psnr.item()),
@@ -458,6 +529,10 @@ def main() -> None:
             "effective_batch_size": args.batch_size * args.grad_accum_steps,
             "condition_residual_scale": args.condition_residual_scale,
             "condition_residual_tanh": args.condition_residual_tanh,
+            "condition_cosine_weight": args.condition_cosine_weight,
+            "condition_channel_stats_weight": args.condition_channel_stats_weight,
+            "condition_highfreq_weight": args.condition_highfreq_weight,
+            "condition_highfreq_threshold": args.condition_highfreq_threshold,
             "backbone_config": backbone.cfg.__dict__,
             "summary": summary,
             "run_name": run_name,

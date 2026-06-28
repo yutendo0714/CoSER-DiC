@@ -3,6 +3,7 @@
 Date: 2026-06-28 JST
 Status: Active MVP mainline
 Parent: `022_stage4_cod_lite_adapter_bootstrap.md`
+Mainline guardrail: `024_stage4_stage5_mainline_research_direction.md`
 
 ## Decision
 
@@ -18,6 +19,11 @@ CoSER semantic/detail actual bitstream
 Decoder-side ResUNet/refiner diagnostics are not used as evidence for CoD /
 CoD-Lite integration quality. They remain implementation probes only. Promotion
 to Stage 4/5 must be based on the official diffusion decoder path.
+
+Fixed alpha blends in this document are diagnostics and stability anchors. They
+are not the proposed method. The next mainline work is condition recovery,
+deterministic content gating, diffusion-friendly detail features, training
+scale, and official baseline curves.
 
 ## Payload Policy
 
@@ -372,7 +378,6 @@ Stage 3 / alpha0.30:
 The aggregate improvement is real but not uniformly clean per split: Kodak DISTS
 slightly worsens at alpha0.30, and DIV2K MS-SSIM slightly worsens. Treat
 alpha0.25/0.30 as Stage-4 stability anchors, not final paper operating points.
-```
 
 Oracle adaptive-alpha diagnostic:
 
@@ -396,6 +401,219 @@ This supports trying a simple decoder-side gate predicted from semantic latent,
 detail context, and base-condition statistics. The gate must be fully
 deterministic from decoded payload/model state, or else any transmitted gate
 bits must be counted in `actual_payload_bpp`.
+
+Deterministic learned-gate probe:
+
+```text
+implementation:
+  src/coserdic/models/gencodec_backbone.py
+  scripts/train_stage4_cod_lite_gate.py
+  scripts/eval_stage4_cod_lite_adapter.py --gate-checkpoint
+
+adapter:
+  20260628_stage4_cod_lite_pyramid_sem256_detailctx6_statsmatch_ft2k_b8.pt
+
+gate checkpoint:
+  checkpoints/stage4_cod_lite_gate/20260628_stage4_cod_lite_gate_statsmatch_fidelity_600_b1ga2.pt
+
+train:
+  20260628_stage4_cod_lite_gate_statsmatch_fidelity_600_b1ga2
+
+eval:
+  20260628_stage4_cod_lite_gate_statsmatch_fidelity_600_b1ga2_full552_eval
+
+patch-FID saved-image audit:
+  20260628_stage4_cod_lite_gate_statsmatch_fidelity_600_b1ga2_full552_patchfid256
+```
+
+Full552 metrics at unchanged actual_payload_bpp:
+
+```text
+actual_payload_bpp:
+  0.013999
+
+Stage 3:
+  PSNR / MS-SSIM: 21.9951 / 0.7348
+  LPIPS / DISTS: 0.5758 / 0.3536
+  patch-FID256:   146.5134
+
+learned deterministic gate:
+  alpha mean/std/min/max: 0.3071 / 0.0773 / 0.1494 / 0.4414
+  PSNR / MS-SSIM:        22.0367 / 0.7384
+  LPIPS / DISTS:         0.5369 / 0.3481
+  patch-FID256:          109.3629
+```
+
+Comparison to the fixed stats-match alpha0.30 anchor:
+
+```text
+fixed alpha0.30:
+  PSNR / MS-SSIM: 22.0421 / 0.7377
+  LPIPS / DISTS:  0.5372 / 0.3489
+  patch-FID256:   110.5424
+
+learned gate:
+  PSNR is slightly lower
+  MS-SSIM, LPIPS, DISTS, and patch-FID are slightly better
+```
+
+Interpretation:
+
+```text
+the learned gate is not a Stage 5 result and does not close the external
+CoD-Lite gap, but it is the first deterministic no-extra-bit replacement
+candidate for fixed alpha0.30
+
+the current gate is still too simple and trained on a small cache; promote it
+only as a Stage-4 mechanism to continue improving, not as a paper operating
+point
+```
+
+Implementation caution:
+
+```text
+the official CoD-Lite image decode path currently fails for batch_size > 1 in
+this wrapper, so gate image-loss training/evaluation should use batch_size=1
+with gradient accumulation until the wrapper is made batch-safe
+```
+
+## Condition-Stat Diagnosis
+
+Full552 condition-stat run:
+
+```text
+run:
+  20260628_stage4_condition_stats_full552
+
+checkpoint:
+  20260628_stage4_cod_lite_pyramid_sem256_detailctx6_tanh075_traincache2048_5k_b8.pt
+
+count:
+  552
+
+actual_payload_bpp:
+  0.013999
+
+base_to_target_l1:
+  0.5371
+
+pred_to_target_l1:
+  0.4112
+
+pred L1 win rate over base:
+  0.9982
+
+base_to_target_relative_l2:
+  0.8758
+
+pred_to_target_relative_l2:
+  0.6716
+
+target / base / pred condition std:
+  0.7954 / 0.8234 / 0.6932
+
+target / base / pred spatial high-frequency ratio:
+  0.2575 / 0.2776 / 0.2280
+```
+
+The semantic-latent + detail-context adapter is genuinely moving CoD-Lite
+condition tensors toward the reference-native condition. However, the predicted
+condition is lower-energy and lower-frequency than the target condition. The
+next adapter training should therefore add condition cosine/stat/spectrum
+matching in addition to L1, and promotion should still be judged by final
+decoded images.
+
+Condition-stat matching follow-up:
+
+```text
+train:
+  20260628_stage4_cod_lite_pyramid_sem256_detailctx6_statsmatch_ft2k_b8
+
+init:
+  20260628_stage4_cod_lite_pyramid_sem256_detailctx6_tanh075_traincache2048_5k_b8.pt
+
+checkpoint:
+  checkpoints/stage4_cod_lite_adapter/20260628_stage4_cod_lite_pyramid_sem256_detailctx6_statsmatch_ft2k_b8.pt
+
+loss additions:
+  condition cosine: 0.25
+  condition channel stats: 0.20
+  condition high-frequency ratio: 0.05
+```
+
+Condition-stat effect on full552:
+
+```text
+pred_to_target_l1:
+  0.4112 -> 0.4165
+
+pred_to_target_cosine:
+  0.7447 -> 0.7463
+
+pred condition std:
+  0.6932 -> 0.7282
+  target: 0.7954
+
+pred spatial high-frequency ratio:
+  0.2280 -> 0.2349
+  target: 0.2575
+```
+
+Full552 image metrics with patch-FID256:
+
+```text
+alpha  PSNR     MS-SSIM  LPIPS    DISTS    patch-FID
+0.00   21.9951  0.7348   0.5758   0.3536   146.5134
+0.25   22.0549  0.7378   0.5467   0.3510   117.3462
+0.30   22.0421  0.7377   0.5372   0.3489   110.5424
+0.40   21.9920  0.7368   0.5185   0.3439    98.2211
+0.50   21.9103  0.7350   0.5011   0.3381    88.2460
+0.75   21.5835  0.7264   0.4655   0.3214    72.1553
+1.00   21.1181  0.7125   0.4428   0.3039    63.7198
+```
+
+Delta versus the previous detail-context checkpoint:
+
+```text
+alpha  dPSNR    dMS-SSIM  dLPIPS   dDISTS   dFID
+0.25   +0.0001  +0.0014   -0.0041  -0.0024  -1.95
+0.30   -0.0010  +0.0017   -0.0049  -0.0030  -2.22
+0.40   -0.0044  +0.0022   -0.0059  -0.0040  -2.50
+1.00   -0.0496  +0.0062   -0.0060  -0.0089  -1.45
+```
+
+Per-split alpha0.30 after stats matching:
+
+```text
+Stage 3 / alpha0.30:
+  Kodak24:
+    PSNR 21.6674 -> 21.6741
+    MS-SSIM 0.7225 -> 0.7250
+    LPIPS 0.6366 -> 0.5925
+    DISTS 0.3732 -> 0.3713
+
+  CLIC2020 test428:
+    PSNR 22.3638 -> 22.4204
+    MS-SSIM 0.7454 -> 0.7486
+    LPIPS 0.5610 -> 0.5231
+    DISTS 0.3499 -> 0.3448
+
+  DIV2K val100:
+    PSNR 20.4956 -> 20.5112
+    MS-SSIM 0.6927 -> 0.6944
+    LPIPS 0.6245 -> 0.5845
+    DISTS 0.3648 -> 0.3610
+```
+
+Interpretation:
+
+```text
+condition-stat matching slightly worsens condition L1 but improves condition
+energy/frequency alignment and full552 decoded-image metrics. The alpha0.25
+and alpha0.30 stability anchors are now cleaner per split, but they remain
+diagnostics. The method should move next to a deterministic learned gate and a
+larger train cache, not more fixed-alpha hand tuning.
+```
 
 ## Baseline Gap
 

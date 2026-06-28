@@ -9,6 +9,8 @@ from .gencodec_backbone import (
     CoDLiteOneStepBackboneConfig,
     CoSERToCoDLiteConditionAdapter,
     CoSERToCoDLiteConditionAdapterConfig,
+    CoSERToCoDLiteAlphaGate,
+    CoSERToCoDLiteAlphaGateConfig,
     CoSERToCoDLiteConditionPyramidAdapter,
     CoSERToCoDLiteConditionPyramidAdapterConfig,
 )
@@ -46,6 +48,8 @@ __all__ = [
     "ConditioningAdapterConfig",
     "CoSERToCoDLiteConditionAdapter",
     "CoSERToCoDLiteConditionAdapterConfig",
+    "CoSERToCoDLiteAlphaGate",
+    "CoSERToCoDLiteAlphaGateConfig",
     "CoSERToCoDLiteConditionPyramidAdapter",
     "CoSERToCoDLiteConditionPyramidAdapterConfig",
     "CausalTokenPrior",

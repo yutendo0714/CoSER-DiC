@@ -23,6 +23,21 @@ decoded semantic/detail actual bitstream
 The ResUNet decoder-refiner experiments are archived diagnostics only. They
 should not be used to choose the Stage 4 architecture.
 
+Mainline policy:
+
+```text
+do not optimize fixed alpha blend as the method
+use alpha0.25/alpha0.30 only as stability anchors
+focus next work on condition recovery, deterministic gating, diffusion-friendly
+detail features, training scale, rate allocation, and official baselines
+```
+
+See:
+
+```text
+docs/research/design_decisions/024_stage4_stage5_mainline_research_direction.md
+```
+
 ## Active Stage 1-3 Anchor
 
 Use the batch-16 rate-prior Stage 1 branch as the current internal
@@ -282,10 +297,11 @@ Stage 4 alpha0.2:
   LPIPS / DISTS: 0.5560 / 0.3513
 ```
 
-The alpha0.2 point is now the safest full-split Stage 4 internal candidate. It
-improves all measured means over Stage 3 at unchanged payload. It still does
-not close the official CoD-Lite perceptual baseline gap, so it is not a Stage 5
-claim.
+This alpha0.2 point was the first full552 safe internal candidate. It improved
+all measured means over Stage 3 at unchanged payload, but is now superseded by
+the train-cache semantic-latent + detail-context stability anchors below. It
+still does not close the official CoD-Lite perceptual baseline gap, so it is not
+a Stage 5 claim.
 
 Strict full552 train-cache semantic-latent + detail-context update:
 
@@ -315,6 +331,45 @@ Condition prediction improved substantially:
 base_condition_l1: 0.5371
 semantic-latent Kodak24 condition_l1: 0.4711
 train-cache detail-context condition_l1: 0.4112
+```
+
+Full552 condition-stat diagnosis:
+
+```text
+run:
+  20260628_stage4_condition_stats_full552
+
+actual_payload_bpp:
+  0.013999
+
+base_to_target_l1:
+  0.5371
+
+pred_to_target_l1:
+  0.4112
+
+pred L1 win rate over base:
+  0.9982
+
+base_to_target_relative_l2:
+  0.8758
+
+pred_to_target_relative_l2:
+  0.6716
+
+target / base / pred condition std:
+  0.7954 / 0.8234 / 0.6932
+
+target / base / pred spatial high-frequency ratio:
+  0.2575 / 0.2776 / 0.2280
+```
+
+Interpretation:
+
+```text
+the adapter correction is real and almost always improves condition distance
+the predicted condition is lower-energy and lower-frequency than target
+next training should add condition cosine/stat/spectrum matching, not only L1
 ```
 
 Full552 patch-FID256 sweep at unchanged actual_payload_bpp=0.013999:
@@ -365,7 +420,102 @@ alpha0.30 vs Stage 3:
 So alpha0.25/0.30 are stability anchors, not final paper operating points. The
 next Stage-4/5 step should remove these split-specific regressions before
 claiming a robust improvement.
+
+Condition-stat matching follow-up:
+
+```text
+train:
+  20260628_stage4_cod_lite_pyramid_sem256_detailctx6_statsmatch_ft2k_b8
+
+init:
+  20260628_stage4_cod_lite_pyramid_sem256_detailctx6_tanh075_traincache2048_5k_b8.pt
+
+loss additions:
+  condition cosine weight: 0.25
+  condition channel-stat weight: 0.20
+  condition high-frequency-ratio weight: 0.05
+
+checkpoint:
+  checkpoints/stage4_cod_lite_adapter/20260628_stage4_cod_lite_pyramid_sem256_detailctx6_statsmatch_ft2k_b8.pt
 ```
+
+Condition-stat result:
+
+```text
+pred_to_target_l1:
+  0.4112 -> 0.4165
+
+pred_to_target_cosine:
+  0.7447 -> 0.7463
+
+pred condition std:
+  0.6932 -> 0.7282
+  target: 0.7954
+
+pred spatial high-frequency ratio:
+  0.2280 -> 0.2349
+  target: 0.2575
+```
+
+Interpretation:
+
+```text
+stat matching moves predicted conditions toward target energy/frequency
+distribution, but slightly worsens condition L1. This confirms that condition
+L1 alone is an incomplete training objective and that stat matching should be
+used as part of a curriculum, not as the only promotion signal.
+```
+
+Full552 patch-FID256 sweep for the stats-match checkpoint:
+
+```text
+alpha  PSNR     MS-SSIM  LPIPS    DISTS    patch-FID
+0.00   21.9951  0.7348   0.5758   0.3536   146.5134
+0.25   22.0549  0.7378   0.5467   0.3510   117.3462
+0.30   22.0421  0.7377   0.5372   0.3489   110.5424
+0.40   21.9920  0.7368   0.5185   0.3439    98.2211
+0.50   21.9103  0.7350   0.5011   0.3381    88.2460
+0.75   21.5835  0.7264   0.4655   0.3214    72.1553
+1.00   21.1181  0.7125   0.4428   0.3039    63.7198
+```
+
+Delta versus the previous detail-context checkpoint at the same alpha:
+
+```text
+alpha  dPSNR    dMS-SSIM  dLPIPS   dDISTS   dFID
+0.25   +0.0001  +0.0014   -0.0041  -0.0024  -1.95
+0.30   -0.0010  +0.0017   -0.0049  -0.0030  -2.22
+0.40   -0.0044  +0.0022   -0.0059  -0.0040  -2.50
+1.00   -0.0496  +0.0062   -0.0060  -0.0089  -1.45
+```
+
+Per-split alpha0.30 after stats matching:
+
+```text
+Stage 3 / alpha0.30:
+  Kodak24:
+    PSNR 21.6674 -> 21.6741
+    MS-SSIM 0.7225 -> 0.7250
+    LPIPS 0.6366 -> 0.5925
+    DISTS 0.3732 -> 0.3713
+
+  CLIC2020 test428:
+    PSNR 22.3638 -> 22.4204
+    MS-SSIM 0.7454 -> 0.7486
+    LPIPS 0.5610 -> 0.5231
+    DISTS 0.3499 -> 0.3448
+
+  DIV2K val100:
+    PSNR 20.4956 -> 20.5112
+    MS-SSIM 0.6927 -> 0.6944
+    LPIPS 0.6245 -> 0.5845
+    DISTS 0.3648 -> 0.3610
+```
+
+This is the cleanest current full552 Stage-4 internal result: alpha0.25/0.30
+now improve all measured mean metrics on Kodak24, CLIC2020 test428, and DIV2K
+val100 at unchanged actual_payload_bpp. It remains a diagnostic fixed-blend
+anchor, not the final method or an external-baseline win.
 
 Oracle adaptive-alpha upper bound:
 
@@ -386,6 +536,73 @@ This suggests a decoder-side content gate is worth testing, but only if the
 gate is computed deterministically from decoded semantic/detail features and
 fixed model state. If transmitted, gate/control bits must be counted in
 actual_payload_bpp.
+
+Learned deterministic gate probe:
+
+```text
+adapter:
+  checkpoints/stage4_cod_lite_adapter/20260628_stage4_cod_lite_pyramid_sem256_detailctx6_statsmatch_ft2k_b8.pt
+
+gate checkpoint:
+  checkpoints/stage4_cod_lite_gate/20260628_stage4_cod_lite_gate_statsmatch_fidelity_600_b1ga2.pt
+
+train:
+  20260628_stage4_cod_lite_gate_statsmatch_fidelity_600_b1ga2
+
+eval:
+  20260628_stage4_cod_lite_gate_statsmatch_fidelity_600_b1ga2_full552_eval
+
+patch-FID audit:
+  20260628_stage4_cod_lite_gate_statsmatch_fidelity_600_b1ga2_full552_patchfid256
+```
+
+Full552 unchanged-payload result:
+
+```text
+actual_payload_bpp:
+  0.013999
+
+Stage 3:
+  PSNR / MS-SSIM: 21.9951 / 0.7348
+  LPIPS / DISTS: 0.5758 / 0.3536
+  patch-FID256:   146.5134
+
+learned gate:
+  alpha mean/std/min/max: 0.3071 / 0.0773 / 0.1494 / 0.4414
+  PSNR / MS-SSIM:        22.0367 / 0.7384
+  LPIPS / DISTS:         0.5369 / 0.3481
+  patch-FID256:          109.3629
+```
+
+Comparison to the fixed alpha0.30 stats-match anchor:
+
+```text
+fixed alpha0.30:
+  PSNR / MS-SSIM: 22.0421 / 0.7377
+  LPIPS / DISTS:  0.5372 / 0.3489
+  patch-FID256:   110.5424
+
+learned gate:
+  PSNR is slightly lower
+  MS-SSIM, LPIPS, DISTS, and patch-FID are slightly better
+```
+
+Interpretation:
+
+```text
+this is a valid Stage-4 no-extra-bit gate mechanism and a better next anchor
+than more fixed-alpha hand tuning
+it is not an external-baseline win and should not be called Stage 5
+next work should scale gate/adapter training and improve condition recovery
+```
+
+Wrapper caution:
+
+```text
+CoD-Lite image decode through the current wrapper is batch-size-1 only for
+image-loss training/evaluation; use gradient accumulation until this path is
+made batch-safe
+```
 
 Stage 4 measured snapshot on Kodak24 512:
 
@@ -518,6 +735,9 @@ Stage 4 adapter bootstrap:
 
 Stage 4 semantic-latent adapter:
   docs/research/design_decisions/023_stage4_semantic_latent_cod_lite_adapter.md
+
+Stage 4/5 mainline direction:
+  docs/research/design_decisions/024_stage4_stage5_mainline_research_direction.md
 
 Pretrained inventory:
   docs/research/baselines/pretrained_asset_inventory_20260628.md

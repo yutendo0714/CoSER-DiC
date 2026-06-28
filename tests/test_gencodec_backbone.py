@@ -6,6 +6,8 @@ from torch import nn
 from coserdic.models import (
     CoDLiteOneStepBackbone,
     CoDLiteOneStepBackboneConfig,
+    CoSERToCoDLiteAlphaGate,
+    CoSERToCoDLiteAlphaGateConfig,
     CoSERToCoDLiteConditionAdapter,
     CoSERToCoDLiteConditionAdapterConfig,
     CoSERToCoDLiteConditionPyramidAdapter,
@@ -138,3 +140,39 @@ def test_coser_to_cod_lite_pyramid_adapter_accepts_detail_context() -> None:
 
     assert cond.shape == (2, 8, 4, 4)
     assert torch.count_nonzero(cond) == 0
+
+
+def test_coser_to_cod_lite_alpha_gate_shape_and_initial_alpha() -> None:
+    gate = CoSERToCoDLiteAlphaGate(
+        CoSERToCoDLiteAlphaGateConfig(
+            semantic_channels=12,
+            detail_context_channels=6,
+            condition_channels=8,
+            hidden_channels=16,
+            num_blocks=1,
+            init_alpha=0.3,
+        )
+    )
+    x_aux = torch.rand(2, 3, 64, 64)
+    x_sem = torch.rand(2, 3, 64, 64)
+    residual = torch.rand(2, 3, 64, 64) - 0.5
+    semantic_latent = torch.rand(2, 12, 4, 4)
+    detail_context = torch.rand(2, 6, 4, 4)
+    base_condition = torch.rand(2, 8, 4, 4)
+    condition_residual = torch.rand(2, 8, 4, 4) - 0.5
+
+    alpha = gate(
+        x_aux,
+        x_sem,
+        residual,
+        semantic_latent,
+        condition_size=(4, 4),
+        base_condition=base_condition,
+        condition_residual=condition_residual,
+        detail_context=detail_context,
+    )
+
+    assert alpha.shape == (2, 1, 1, 1)
+    assert torch.all(alpha >= 0)
+    assert torch.all(alpha <= 1)
+    assert torch.allclose(alpha, torch.full_like(alpha, 0.3), atol=1.0e-6)

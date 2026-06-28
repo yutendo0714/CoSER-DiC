@@ -4,6 +4,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import math
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -303,6 +304,124 @@ class CoSERToCoDLiteConditionPyramidAdapter(nn.Module):
         fused = self.fuse_in(torch.cat(features, dim=1))
         fused = self.fusion_blocks(fused)
         return self.out(fused)
+
+
+@dataclass(frozen=True)
+class CoSERToCoDLiteAlphaGateConfig:
+    semantic_channels: int = 256
+    detail_context_channels: int = 0
+    condition_channels: int = 384
+    hidden_channels: int = 128
+    image_feature_channels: int = 9
+    num_blocks: int = 2
+    alpha_min: float = 0.0
+    alpha_max: float = 1.0
+    init_alpha: float = 0.3
+
+
+class CoSERToCoDLiteAlphaGate(nn.Module):
+    """Predict a deterministic decoder-side blend strength from decoded CoSER state."""
+
+    def __init__(self, cfg: CoSERToCoDLiteAlphaGateConfig = CoSERToCoDLiteAlphaGateConfig()) -> None:
+        super().__init__()
+        if not 0.0 <= cfg.alpha_min < cfg.alpha_max <= 1.0:
+            raise ValueError("alpha_min/alpha_max must satisfy 0 <= min < max <= 1")
+        if not cfg.alpha_min < cfg.init_alpha < cfg.alpha_max:
+            raise ValueError("init_alpha must be inside (alpha_min, alpha_max)")
+        self.cfg = cfg
+        self.image_proj = nn.Sequential(
+            nn.Conv2d(cfg.image_feature_channels, cfg.hidden_channels, kernel_size=3, padding=1),
+            nn.SiLU(),
+        )
+        self.semantic_proj = nn.Sequential(
+            nn.Conv2d(cfg.semantic_channels, cfg.hidden_channels, kernel_size=1),
+            nn.SiLU(),
+        )
+        self.condition_proj = nn.Sequential(
+            nn.Conv2d(cfg.condition_channels * 2, cfg.hidden_channels, kernel_size=1),
+            nn.SiLU(),
+        )
+        self.detail_proj = None
+        fusion_inputs = 3
+        if cfg.detail_context_channels > 0:
+            self.detail_proj = nn.Sequential(
+                nn.Conv2d(cfg.detail_context_channels, cfg.hidden_channels, kernel_size=1),
+                nn.SiLU(),
+            )
+            fusion_inputs += 1
+        self.fuse = nn.Sequential(
+            nn.Conv2d(cfg.hidden_channels * fusion_inputs, cfg.hidden_channels, kernel_size=3, padding=1),
+            nn.SiLU(),
+            *[_ConditionResidualBlock(cfg.hidden_channels) for _ in range(cfg.num_blocks)],
+        )
+        self.head = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(cfg.hidden_channels, cfg.hidden_channels),
+            nn.SiLU(),
+            nn.Linear(cfg.hidden_channels, 1),
+        )
+        final = self.head[-1]
+        if isinstance(final, nn.Linear):
+            nn.init.zeros_(final.weight)
+            normalized = (cfg.init_alpha - cfg.alpha_min) / (cfg.alpha_max - cfg.alpha_min)
+            normalized = min(max(normalized, 1.0e-6), 1.0 - 1.0e-6)
+            nn.init.constant_(final.bias, math.log(normalized / (1.0 - normalized)))
+
+    def forward(
+        self,
+        x_aux: torch.Tensor,
+        x_sem: torch.Tensor,
+        residual_hat: torch.Tensor,
+        semantic_latent: torch.Tensor,
+        *,
+        condition_size: tuple[int, int],
+        base_condition: torch.Tensor,
+        condition_residual: torch.Tensor,
+        detail_context: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if x_aux.shape != x_sem.shape or x_aux.shape != residual_hat.shape:
+            raise ValueError("x_aux, x_sem, and residual_hat must share shape")
+        if tuple(base_condition.shape[-2:]) != condition_size:
+            raise ValueError(
+                f"base_condition spatial shape mismatch: got {tuple(base_condition.shape[-2:])}, expected {condition_size}"
+            )
+        if base_condition.shape != condition_residual.shape:
+            raise ValueError("base_condition and condition_residual must share shape")
+        if base_condition.shape[1] != self.cfg.condition_channels:
+            raise ValueError(
+                "base_condition channel mismatch: "
+                f"got {base_condition.shape[1]}, expected {self.cfg.condition_channels}"
+            )
+
+        image_features = torch.cat([x_aux, x_sem, residual_hat], dim=1)
+        if image_features.shape[1] != self.cfg.image_feature_channels:
+            raise ValueError(
+                f"image feature channel mismatch: got {image_features.shape[1]}, expected {self.cfg.image_feature_channels}"
+            )
+        image_features = F.interpolate(image_features, size=condition_size, mode="bilinear", align_corners=False)
+        image_features = self.image_proj(image_features)
+
+        semantic_features = self.semantic_proj(semantic_latent)
+        semantic_features = F.interpolate(semantic_features, size=condition_size, mode="bilinear", align_corners=False)
+
+        condition_features = self.condition_proj(torch.cat([base_condition, condition_residual], dim=1))
+        features = [image_features, semantic_features, condition_features]
+        if self.detail_proj is not None:
+            if detail_context is None:
+                raise ValueError("detail_context is required when detail_context_channels > 0")
+            if detail_context.shape[1] != self.cfg.detail_context_channels:
+                raise ValueError(
+                    "detail_context channel mismatch: "
+                    f"got {detail_context.shape[1]}, expected {self.cfg.detail_context_channels}"
+                )
+            detail_features = self.detail_proj(detail_context)
+            detail_features = F.interpolate(detail_features, size=condition_size, mode="bilinear", align_corners=False)
+            features.append(detail_features)
+
+        logit = self.head(self.fuse(torch.cat(features, dim=1)))
+        alpha = torch.sigmoid(logit).view(-1, 1, 1, 1)
+        return self.cfg.alpha_min + (self.cfg.alpha_max - self.cfg.alpha_min) * alpha
 
 
 def _prepend_sys_path(path: Path) -> None:
