@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
+import torch
+from torch.utils.data import DataLoader, Dataset
+from torchvision.transforms import functional as TF
 
 from coserdic.datasets.image_folder import IMAGE_SUFFIXES
 
@@ -83,7 +86,7 @@ def load_manifest_patch_groups(manifest_jsonl: Path | None) -> dict[str, str]:
             row = json.loads(line)
             source = row.get("source_path") or row.get("path") or ""
             group = infer_gencodec_dataset(source)
-            for key in ("reference", "semantic_only", "stage3"):
+            for key in ("reference", "semantic_only", "stage3", "stage4", "stage4_image"):
                 image_path = row.get(key)
                 if image_path:
                     groups[Path(image_path).name] = group
@@ -209,6 +212,38 @@ def count_images(path: Path, *, deep: bool = False) -> int:
     return len(list_image_files(path, deep=deep))
 
 
+class UInt8ImageDataset(Dataset):
+    def __init__(self, root: Path, *, deep: bool = False) -> None:
+        self.paths = list_image_files(root, deep=deep)
+
+    def __len__(self) -> int:
+        return len(self.paths)
+
+    def __getitem__(self, index: int) -> torch.Tensor:
+        image = Image.open(self.paths[index]).convert("RGB")
+        return TF.pil_to_tensor(image)
+
+
+@torch.no_grad()
+def calculate_torchmetrics_fid(
+    reference_input: Path,
+    candidate_input: Path,
+    *,
+    batch_size: int,
+    cuda: bool,
+) -> dict[str, float]:
+    from torchmetrics.image.fid import FrechetInceptionDistance
+
+    device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
+    fid_metric = FrechetInceptionDistance(normalize=False).to(device)
+    for root, real in ((reference_input, True), (candidate_input, False)):
+        dataset = UInt8ImageDataset(root)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        for batch in loader:
+            fid_metric.update(batch.to(device), real=real)
+    return {"torchmetrics_frechet_inception_distance": float(fid_metric.compute().item())}
+
+
 def maybe_prepare_patch_inputs(args: argparse.Namespace, output_json: Path | None) -> tuple[Path, Path, dict[str, Any]]:
     if args.patch_protocol == "single_grid" and args.patch_size <= 0:
         reference_count = count_images(args.reference_dir, deep=args.samples_find_deep)
@@ -233,6 +268,33 @@ def maybe_prepare_patch_inputs(args: argparse.Namespace, output_json: Path | Non
         else:
             cache_root = base / f"patch_cache_ps{args.patch_size}_s{args.patch_stride}_{stamp}"
     if cache_root.exists():
+        reference_patch_dir = cache_root / "reference"
+        candidate_patch_dir = cache_root / "candidate"
+        if args.reuse_patch_cache and reference_patch_dir.exists() and candidate_patch_dir.exists():
+            reference_patch_count = count_images(reference_patch_dir)
+            candidate_patch_count = count_images(candidate_patch_dir)
+            summary: dict[str, Any] = {
+                "mode": "patch",
+                "patch_protocol": args.patch_protocol,
+                "patch_cache_dir": str(cache_root),
+                "patch_cache_reused": True,
+                "num_reference_images": count_images(args.reference_dir, deep=args.samples_find_deep),
+                "num_candidate_images": count_images(args.candidate_dir, deep=args.samples_find_deep),
+                "num_reference_patches": reference_patch_count,
+                "num_candidate_patches": candidate_patch_count,
+            }
+            if args.patch_protocol == "gencodec":
+                summary.update(
+                    {
+                        "gencodec_kodak_patch_size": args.gencodec_kodak_patch_size,
+                        "gencodec_other_patch_size": args.gencodec_other_patch_size,
+                        "gencodec_dataset_filter": args.gencodec_dataset_filter,
+                        "fid_patch_num": args.fid_patch_num,
+                    }
+                )
+            else:
+                summary.update({"patch_size": args.patch_size, "patch_stride": args.patch_stride})
+            return reference_patch_dir, candidate_patch_dir, summary
         if not args.overwrite_patch_cache:
             raise FileExistsError(f"patch cache already exists: {cache_root}")
         shutil.rmtree(cache_root)
@@ -274,6 +336,7 @@ def maybe_prepare_patch_inputs(args: argparse.Namespace, output_json: Path | Non
             "gencodec_dataset_filter": args.gencodec_dataset_filter,
             "fid_patch_num": args.fid_patch_num,
             "patch_cache_dir": str(cache_root),
+            "patch_cache_reused": False,
             "manifest_jsonl": str(manifest_jsonl) if manifest_jsonl is not None else "",
             "num_reference_images": count_images(args.reference_dir, deep=args.samples_find_deep),
             "num_candidate_images": count_images(args.candidate_dir, deep=args.samples_find_deep),
@@ -305,6 +368,7 @@ def maybe_prepare_patch_inputs(args: argparse.Namespace, output_json: Path | Non
         "patch_size": args.patch_size,
         "patch_stride": args.patch_stride,
         "patch_cache_dir": str(cache_root),
+        "patch_cache_reused": False,
         "num_reference_images": count_images(args.reference_dir, deep=args.samples_find_deep),
         "num_candidate_images": count_images(args.candidate_dir, deep=args.samples_find_deep),
         "num_reference_patches": reference_patch_count,
@@ -321,6 +385,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--kid-subset-size", type=int, default=0)
     parser.add_argument("--kid-subsets", type=int, default=100)
+    parser.add_argument("--metric-backend", choices=("torch_fidelity", "torchmetrics_fid"), default="torch_fidelity")
     parser.add_argument("--no-fid", action="store_true")
     parser.add_argument("--no-kid", action="store_true")
     parser.add_argument("--no-cuda", action="store_true")
@@ -339,6 +404,8 @@ def main() -> None:
     parser.add_argument("--manifest-jsonl", type=Path, default=None)
     parser.add_argument("--patch-cache-dir", type=Path, default=None)
     parser.add_argument("--overwrite-patch-cache", action="store_true")
+    parser.add_argument("--reuse-patch-cache", action="store_true")
+    parser.add_argument("--delete-patch-cache-after", action="store_true")
     parser.add_argument("--max-images", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -379,6 +446,8 @@ def main() -> None:
         kid_subset_size = sample_count
     if kid and kid_subset_size < 2:
         raise ValueError("KID requires at least 2 samples; pass --no-kid or provide more images/patches")
+    if args.metric_backend == "torchmetrics_fid" and kid and not args.dry_run:
+        raise ValueError("torchmetrics_fid backend supports FID only; pass --no-kid")
 
     payload: dict[str, Any] = {
         "label": args.label,
@@ -392,31 +461,54 @@ def main() -> None:
         "kid_subsets": args.kid_subsets if kid else 0,
         "batch_size": args.batch_size,
         "cuda": not args.no_cuda,
+        "metric_backend": args.metric_backend,
         **input_summary,
     }
     if not args.dry_run:
-        from torch_fidelity import calculate_metrics
+        if args.metric_backend == "torchmetrics_fid":
+            if not fid:
+                metrics = {}
+            else:
+                metrics = calculate_torchmetrics_fid(
+                    reference_input,
+                    candidate_input,
+                    batch_size=args.batch_size,
+                    cuda=not args.no_cuda,
+                )
+            payload["metrics"] = metrics
+        else:
+            from torch_fidelity import calculate_metrics
 
-        metrics = calculate_metrics(
-            input1=str(reference_input),
-            input2=str(candidate_input),
-            cuda=not args.no_cuda,
-            batch_size=args.batch_size,
-            fid=fid,
-            kid=kid,
-            kid_subset_size=kid_subset_size,
-            kid_subsets=args.kid_subsets,
-            samples_find_deep=False,
-            samples_find_ext="png,jpg,jpeg",
-            samples_ext_lossy="jpg,jpeg",
-            verbose=True,
-        )
-        payload["metrics"] = {key: float(value) for key, value in metrics.items()}
+            metrics = calculate_metrics(
+                input1=str(reference_input),
+                input2=str(candidate_input),
+                cuda=not args.no_cuda,
+                batch_size=args.batch_size,
+                fid=fid,
+                kid=kid,
+                kid_subset_size=kid_subset_size,
+                kid_subsets=args.kid_subsets,
+                samples_find_deep=False,
+                samples_find_ext="png,jpg,jpeg",
+                samples_ext_lossy="jpg,jpeg",
+                verbose=True,
+            )
+            payload["metrics"] = {key: float(value) for key, value in metrics.items()}
     else:
         payload["metrics"] = {}
 
     if output_json is not None:
         output_json.write_text(json.dumps(payload, indent=2, allow_nan=False))
+    if (
+        args.delete_patch_cache_after
+        and input_summary.get("mode") == "patch"
+        and not input_summary.get("patch_cache_reused", False)
+        and input_summary.get("patch_cache_dir")
+    ):
+        shutil.rmtree(Path(str(input_summary["patch_cache_dir"])), ignore_errors=True)
+        payload["patch_cache_deleted_after"] = True
+        if output_json is not None:
+            output_json.write_text(json.dumps(payload, indent=2, allow_nan=False))
     print(json.dumps(payload, indent=2, allow_nan=False))
 
 

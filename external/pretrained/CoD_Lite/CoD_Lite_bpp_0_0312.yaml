@@ -1,0 +1,18 @@
+# CoD-Lite: bpp=0.0312, pixel-space, pred=x, no noise
+model:
+  net:
+    class_path: finetuned_one_step_codec.models.models.OneStepCoD
+    init_args:
+      in_channels: 3
+      hidden_size: 384
+      hidden_size_x: 32
+      num_blocks: 24
+      num_cond_blocks: 21
+      patch_size: 16
+      bottleneck_dim: 128
+      ds: 16
+      codebook_bits: 8
+      up2x: true
+      light: true
+      noise_level: 0.0
+      pred: x

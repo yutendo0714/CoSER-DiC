@@ -1,0 +1,57 @@
+experiment:
+  name: coserdic_stage4_decoder_refiner
+  seed: 42
+  scope: core_mvp_stage4
+
+model:
+  stage1_checkpoint: checkpoints/stage1_semantic_vq/20260627_stage1_lpips002_rateprior0005_tau01_vq005_freezecodebook_ft500_b16.pt
+  base_channels: 64
+  semantic_context_channels: 32
+  num_res_blocks: 6
+  residual_scale: 0.03
+  use_semantic_latent: true
+  zero_init_output: true
+
+stage3_decoder_input:
+  detail_downsample_factor: 32
+  detail_bits: 4
+  detail_range: 0.25
+  detail_gain: 0.5
+  decoder_postprocess: unsharp3x3
+  decoder_postprocess_strength: 0.15
+  payload_policy: fixed_decoder_side_refiner_weights_no_extra_actual_payload_bpp
+
+data:
+  train_roots:
+    - /dpl/open-images-v6/train/data
+  crop_size: 512
+  split_policy: avoid_eval_leakage; do not use flat /dpl/div2k unless train/val indices are explicitly filtered
+
+optimization:
+  optimizer: adamw
+  lr: 5.0e-5
+  weight_decay: 1.0e-4
+  batch_size: 4
+  max_steps: 1000
+  checkpoint_every: 250
+  mixed_precision: true
+
+loss:
+  l1: 0.35
+  ms_ssim: 0.25
+  lpips: 0.20
+  dists: 0.00
+  anchor_stage3_l1: 0.50
+  refiner_tv: 0.10
+  refiner_chroma: 0.20
+
+validation:
+  use_actual_payload_bpp_from_stage3: true
+  recommended_eval_protocol: cod_reproduction_512
+  report:
+    - actual_payload_bpp
+    - PSNR
+    - MS-SSIM
+    - LPIPS-Alex
+    - DISTS
+    - GenCodec public-script torchmetrics patch FID

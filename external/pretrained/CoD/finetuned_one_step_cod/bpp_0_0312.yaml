@@ -1,0 +1,19 @@
+# One-Step CoD: bpp=0.0312, pixel-space, pred=x, no noise
+# Checkpoint: models/OneStepCoD/bpp_0_0312.pt
+ckpt_prefix: "denoiser."
+model:
+  class_path: downstream.finetuned_one_step_cod.OneStepCoD
+  init_args:
+    in_channels: 3
+    hidden_size: 1152
+    hidden_size_x: 64
+    num_groups: 16
+    num_blocks: 30
+    num_cond_blocks: 26
+    patch_size: 16
+    nerf_mlpratio: 2
+    ds: 16
+    codebook_bits: 8
+    up2x: true
+    noise_level: 0.0
+    pred: x

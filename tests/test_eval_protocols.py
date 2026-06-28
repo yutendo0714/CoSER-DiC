@@ -7,6 +7,7 @@ import pytest
 from coserdic.datasets.eval_protocols import (
     EvalProtocolCountError,
     flatten_selection_paths,
+    protocol_summary,
     resolve_eval_dataset,
     resolve_eval_protocol,
     validate_expected_counts,
@@ -56,6 +57,23 @@ def test_protocol_can_resolve_selected_dataset_subset_without_strict_counts(tmp_
 
     assert len(selections) == 1
     assert [path.name for path in flatten_selection_paths(selections)] == ["p001.png", "m001.png"]
+
+
+def test_cod_protocol_documents_public_script_patch_fid_sizes(tmp_path: Path) -> None:
+    dpl = tmp_path / "dpl"
+    touch_image(dpl / "kodak" / "kodim01.png")
+
+    selections = resolve_eval_protocol(
+        "cod_reproduction_512",
+        dpl_root=dpl,
+        dataset_keys=["kodak"],
+        strict_expected_counts=False,
+    )
+    summary = protocol_summary("cod_reproduction_512", selections)
+    notes = " ".join(summary["notes"])
+
+    assert "Kodak512 uses 64px patches" in notes
+    assert "non-Kodak datasets use 256px patches" in notes
 
 
 def test_legacy_gencodec_protocol_alias_still_resolves(tmp_path: Path) -> None:

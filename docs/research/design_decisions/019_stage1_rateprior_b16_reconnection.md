@@ -903,9 +903,10 @@ metric note:
   (`--patch-size 128 --patch-stride 128`). They are not CoD/CoD-Lite
   dataset-level patch FID.
   CoD / CoD-Lite patch FID must be reported per dataset with exact patch
-  size, shift count, and backend. CoD paper-style CLIC uses patch128 under
-  the 512-crop protocol; CoD-Lite/GLC/DLF-style high-resolution settings use
-  patch256 for non-Kodak datasets.
+  size, shift count, and backend. Treat CLIC patch128 as a legacy diagnostic
+  unless explicitly reproducing a paper-specific setting; the public
+  GenCodec/CoD-Lite metric scripts default to patch256 and CoD-Lite README
+  states Kodak512=64 and other datasets=256.
 
 no-postprocess:
   PSNR / MS-SSIM:      21.996587 / 0.734923
@@ -968,9 +969,40 @@ backend caveat:
   These values align the non-Kodak patch size used by CoD-Lite/GLC/DLF README
   scripts, but they are not the CoD paper CLIC128 setting. They also use
   torch-fidelity; GenCodec official scripts use torchmetrics FID, so external
-  paper-table numbers should label the backend or be recomputed with the
-  official metric implementation. CoD paper-style CLIC128 should be refreshed
-  separately before a CoD main-table FID comparison.
+  paper-table numbers should label the backend.
+```
+
+Legacy CLIC128 patch FID diagnostic, strict 512, torchmetrics backend:
+
+```text
+artifact:
+  results/analysis/stage3_topk2048_cod512_torchmetrics_fid_summary.json
+
+per-run artifacts:
+  results/analysis/image_distribution_metrics/20260628_stage3_b16_topk2048_no_pp_cod512_kodak_patch64_n2_torchmetrics_fid.json
+  results/analysis/image_distribution_metrics/20260628_stage3_b16_topk2048_unsharp150_cod512_kodak_patch64_n2_torchmetrics_fid.json
+  results/analysis/image_distribution_metrics/20260628_stage3_b16_topk2048_unsharp200_cod512_kodak_patch64_n2_torchmetrics_fid.json
+  results/analysis/image_distribution_metrics/20260628_stage3_b16_topk2048_no_pp_cod512_clic2020_test_patch128_n2_torchmetrics_fid.json
+  results/analysis/image_distribution_metrics/20260628_stage3_b16_topk2048_unsharp150_cod512_clic2020_test_patch128_n2_torchmetrics_fid.json
+  results/analysis/image_distribution_metrics/20260628_stage3_b16_topk2048_unsharp200_cod512_clic2020_test_patch128_n2_torchmetrics_fid.json
+
+Kodak 24:
+  patch protocol: 64px non-overlap + 32px half-shift, 2712 patches
+  no-postprocess FID: 216.777847
+  unsharp0.15 FID:    216.593414  delta -0.184433
+  unsharp0.20 FID:    216.635513  delta -0.142334
+
+CLIC2020 test 428:
+  patch protocol: 128px non-overlap + 64px half-shift, 10700 patches
+  no-postprocess FID: 156.727158
+  unsharp0.15 FID:    156.717102  delta -0.010056
+  unsharp0.20 FID:    156.715881  delta -0.011276
+
+interpretation:
+  Under the CoD paper-style torchmetrics FID protocol, both unsharp strengths
+  are slightly better than no-postprocess on Kodak64 and CLIC128. The absolute
+  deltas are tiny, so this supports postprocess as a harmless perceptual
+  tuning knob rather than as a core distribution-quality breakthrough.
 ```
 
 Unsharp-strength sweep:
@@ -1002,6 +1034,68 @@ strength 0.2:
   LPIPS / DISTS wins vs none: 532 / 525
 ```
 
+Fixed detail-gain sweep at unsharp3x3 strength 0.15:
+
+```text
+artifacts:
+  results/analysis/stage3_topk2048_cod512_unsharp150_gain_sweep_summary.json
+  results/analysis/stage3_topk2048_cod512_unsharp150_gain_sweep_per_image.json
+
+gain 1.00:
+  run:
+    20260628_stage3_b16_topk2048_tf384_semposleft_g4_b4_gencodec512_pp_unsharp150_perceptual_prefixsafe
+  actual_payload_bpp: 0.013999
+  PSNR / MS-SSIM:      21.991413 / 0.734857
+  LPIPS / DISTS:       0.577543 / 0.354169
+  Kodak64 / CLIC128 CoD-style torchmetrics FID:
+    216.593414 / 156.717102
+
+gain 0.75:
+  run:
+    20260628_stage3_b16_topk2048_tf384_semposleft_g4_b4_cod512_gain075_pp_unsharp150_perceptual_recon
+  wandb:
+    wandb/offline-run-20260628_100503-tbu2gp28
+  actual_payload_bpp: 0.013999
+  PSNR / MS-SSIM:      21.965810 / 0.734971
+  LPIPS / DISTS:       0.574178 / 0.354746
+  Kodak64 / CLIC128 CoD-style torchmetrics FID:
+    215.559616 / 153.337830
+  per-image wins vs gain1.00:
+    LPIPS 495 / 552, DISTS 180 / 552, PSNR 50 / 552, MS-SSIM 279 / 552
+
+gain 0.625:
+  run:
+    20260628_stage3_b16_topk2048_tf384_semposleft_g4_b4_cod512_gain0625_pp_unsharp150_perceptual_recon
+  wandb:
+    wandb/offline-run-20260628_111950-rgg7tc4w
+  actual_payload_bpp: 0.013999
+  PSNR / MS-SSIM:      21.929778 / 0.734715
+  LPIPS / DISTS:       0.573180 / 0.355106
+  Kodak64 / CLIC128 CoD-style torchmetrics FID:
+    215.246185 / 152.066864
+  per-image wins vs gain1.00:
+    LPIPS 481 / 552, DISTS 170 / 552, PSNR 30 / 552, MS-SSIM 224 / 552
+
+gain 0.50:
+  run:
+    20260628_stage3_b16_topk2048_tf384_semposleft_g4_b4_cod512_gain050_pp_unsharp150_perceptual_recon
+  wandb:
+    wandb/offline-run-20260628_104119-jbua04d0
+  actual_payload_bpp: 0.013999
+  PSNR / MS-SSIM:      21.879395 / 0.734248
+  LPIPS / DISTS:       0.572700 / 0.355515
+  Kodak64 / CLIC128 CoD-style torchmetrics FID:
+    215.036667 / 150.943024
+  per-image wins vs gain1.00:
+    LPIPS 460 / 552, DISTS 159 / 552, PSNR 18 / 552, MS-SSIM 174 / 552
+
+decision note:
+  detail_gain is a fixed decoder-side operating-point setting in these runs,
+  not image-specific side information, so actual_payload_bpp is unchanged.
+  If a future method transmits per-image or spatially varying gain/control, it
+  must be counted in actual_payload_bpp.
+```
+
 Interpretation:
 
 ```text
@@ -1014,22 +1108,22 @@ rate point:
   main unsharp perceptual point just below 0.014 actual_payload_bpp.
 
 perceptual point:
-  unsharp3x3 strength 0.2 with topk2048 is the current LPIPS/DISTS-first strict
-  512 candidate. It improves LPIPS/DISTS for most images at unchanged payload
-  bpp, but it should not be presented as a universal metric win.
+  gain0.50 + unsharp3x3 strength 0.15 is now the strongest LPIPS and CoD-style
+  patch-FID point checked at the strict 512 rate. It sacrifices PSNR and DISTS,
+  so it should be reported as an LPIPS/FID-first operating point.
 
 balanced point:
-  unsharp3x3 strength 0.15 is the current balanced postprocess candidate. It
-  recovers most of the LPIPS/DISTS gain from strength 0.2 while keeping FID
-  regression slightly smaller.
+  gain0.625 + unsharp3x3 strength 0.15 is the current LPIPS/FID-balanced point.
+  It preserves most of the gain0.50 LPIPS/FID improvement while recovering
+  some PSNR/MS-SSIM/DISTS. gain0.75 is the MS-SSIM-friendlier reduced-gain
+  point.
 
 fidelity point:
-  no-postprocess is the safer PSNR/MS-SSIM and distribution-metric candidate.
-  Image-level FID/KID and patch128_s128 diagnostic FID prefer no-postprocess;
-  CoD-Lite/GLC/DLF-style dataset-level patch FID has been refreshed for
-  no-postprocess. CoD paper-style CLIC128 and postprocessed variants must be
-  refreshed before claiming a distribution-metric winner under the CoD main
-  protocol.
+  no-postprocess remains the safest PSNR point. For DISTS-first reporting,
+  gain1.00 + unsharp3x3 strength 0.20 is still strongest among the checked
+  postprocess variants. CoD paper-style patch FID now clearly prefers reduced
+  detail gain, so Stage 3 should present multiple operating points rather than
+  collapse all perceptual/fidelity behavior into one number.
 
 external SOTA claim:
   still not justified. We have a valid 512 protocol point at extremely low bpp,
@@ -1037,16 +1131,121 @@ external SOTA claim:
   reproduced baselines are still open.
 ```
 
+## Strict 512 Failure-Mode Audit
+
+Failure-mode analysis artifacts:
+
+```text
+script:
+  scripts/analyze_stage3_failure_modes.py
+
+json artifacts:
+  results/analysis/stage3_failure_modes/20260628_stage3_b16_topk2048_cod512_gain050_unsharp150_failure_modes.json
+  results/analysis/stage3_failure_modes/20260628_stage3_b16_topk2048_cod512_gain0625_unsharp150_failure_modes.json
+  results/analysis/stage3_failure_modes/20260628_stage3_b16_topk2048_cod512_gain075_unsharp150_failure_modes.json
+
+visual galleries:
+  results/analysis/stage3_visual_galleries/20260628_stage3_b16_topk2048_cod512_gain050_unsharp150_worst_lpips.md
+  results/analysis/stage3_visual_galleries/20260628_stage3_b16_topk2048_cod512_gain050_unsharp150_worst_dists.md
+  results/analysis/stage3_visual_galleries/20260628_stage3_b16_topk2048_cod512_gain050_unsharp150_lowest_psnr.md
+  results/analysis/stage3_visual_galleries/20260628_stage3_b16_topk2048_cod512_gain0625_unsharp150_lpips_regressions.md
+```
+
+Semantic-only to Stage 3 deltas at strict 512, topk2048, unsharp0.15:
+
+```text
+gain0.50:
+  PSNR mean delta:    +0.319094, improvements 552 / 552
+  MS-SSIM mean delta: +0.003972, improvements 549 / 552
+  LPIPS mean delta:   -0.005892, improvements 516 / 552
+  DISTS mean delta:   -0.002990, improvements 525 / 552
+
+gain0.625:
+  PSNR mean delta:    +0.369476, improvements 552 / 552
+  MS-SSIM mean delta: +0.004438, improvements 547 / 552
+  LPIPS mean delta:   -0.005412, improvements 477 / 552
+  DISTS mean delta:   -0.003399, improvements 516 / 552
+
+gain0.75:
+  PSNR mean delta:    +0.405508, improvements 552 / 552
+  MS-SSIM mean delta: +0.004694, improvements 543 / 552
+  LPIPS mean delta:   -0.004414, improvements 435 / 552
+  DISTS mean delta:   -0.003759, improvements 506 / 552
+```
+
+Overall driver correlations for gain0.50:
+
+```text
+LPIPS:
+  semantic_payload_bpp:  +0.575
+  actual_payload_bpp:    +0.517
+  semantic_topk_hit:     -0.375
+  residual_abs_mean:     +0.262
+
+DISTS:
+  residual_abs_mean:     +0.286
+  actual_payload_bpp:    +0.278
+  semantic_payload_bpp:  +0.240
+
+PSNR:
+  actual_payload_bpp:    -0.749
+  detail_entropy_bits:   -0.667
+  residual_std:          -0.619
+  semantic_payload_bpp:  -0.619
+
+MS-SSIM:
+  actual_payload_bpp:    -0.734
+  semantic_payload_bpp:  -0.683
+  residual_abs_mean:     -0.523
+  semantic_topk_hit:     +0.513
+```
+
+Visual audit:
+
+```text
+dominant failure class:
+  highly structured high-frequency content: branches, leaves, grids, repeated
+  thin lines, fabric-like or building-like lattices.
+
+observed behavior:
+  semantic-only reconstructions preserve coarse color/layout but smear or
+  hallucinate fine structure.
+  the current 4-bit static detail residual improves fidelity metrics but cannot
+  reconstruct dense high-frequency geometry at this payload.
+  reduced detail gain improves LPIPS and CoD-style patch FID because it avoids
+  over-committing to weak residual texture, but it cannot solve the missing
+  structure problem.
+
+Stage 4 / 5 implication:
+  the next large-improvement attempt should be model-side, not more fixed
+  postprocess tuning. The most plausible Core-MVP-preserving direction is a
+  CoD-Lite / CoD diffusion backbone conditioned only on decoded semantic tokens,
+  decoded detail residual, and decoder-reproducible auxiliary features, with no
+  image-specific side information unless counted in actual_payload_bpp. It
+  should target structured texture regeneration and keep the semantic/detail
+  entropy split.
+```
+
 ## Open Items
 
 ```text
 1. Continue decoder sweep on the strict 512 path:
-   done: unsharp strength 0.0, 0.1, 0.15, 0.2 at detail_gain 1.0
-   next: detail_gain 0.5 and 0.75 around no-postprocess / unsharp0.15
-   goal: recover some FID/KID while keeping most of the LPIPS/DISTS gain.
+   done: unsharp strength 0.0, 0.1, 0.15, 0.2 at detail_gain 1.0;
+         detail_gain 0.5, 0.625, and 0.75 at unsharp0.15
+   next: stop fixed postprocess/gain hand-tuning for now and move model-side
+         improvements.
+   goal: separate LPIPS/FID-first, balanced, DISTS-first, and PSNR-first
+         operating points without changing actual_payload_bpp.
 2. Compare against refreshed official baselines or reproduced metrics before
    making any external "large improvement" claim.
-3. Add visual audits / failure galleries from the strict 512 reconstructions.
+3. Visual audits / failure galleries from strict 512 reconstructions:
+   done for gain0.50 and gain0.625.
+   next: use these galleries to design the active CoD-Lite / CoD Stage 4
+         diffusion adapter experiment in
+         `021_stage4_cod_codlite_parallel_backbone_policy.md`.
+         The earlier ResUNet decoder-refiner path is archived in
+         `020_stage4_decoder_side_refiner.md` as engineering diagnostics only
+         and must not steer the MVP Stage 4 architecture.
 4. Keep all paper tables on actual_payload_bpp and exclude failed
    teacher-forced-topk bitstream runs.
 ```
@@ -1072,8 +1271,18 @@ reason:
   context_length=256 prior and 16x16 residual prior.
   Strict 512 topk2048 lowers the unsharp perceptual point to
   0.013999 actual_payload_bpp with exact semantic/detail roundtrip.
-  Strict 512 no-postprocess is the safer FID/KID point; unsharp0.2 is the
-  LPIPS/DISTS-first point.
+  Strict 512 gain0.50 + unsharp0.15 is the strongest LPIPS and CoD-style
+  patch-FID point checked so far; gain0.625 + unsharp0.15 is the current
+  LPIPS/FID-balanced reduced-gain point; gain1.00 + unsharp0.20 remains the
+  DISTS-first point.
+  Failure-mode analysis shows the remaining weakness is structured
+  high-frequency content, which should be addressed by the active CoD-Lite /
+  CoD diffusion-backbone integration rather than by more hand-tuned
+  postprocess or the archived ResUNet refiner branch.
+  Initial ResUNet decoder-refiner implementation exists only as archived
+  engineering diagnostics: it validated unchanged-payload model-side evaluation
+  plumbing, but it is not a promoted Stage 4 result and should not steer the
+  active CoD-Lite / CoD architecture.
   External reproduced baselines remain necessary before any large-improvement
   claim.
 ```

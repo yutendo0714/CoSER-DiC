@@ -1,6 +1,8 @@
 # 017 Stage 3 Fixed Decoder Unsharp Postprocess
 
 Date: 2026-06-27 JST
+Status: Historical Stage 3 decision; Stage 4 direction is now superseded by
+`021_stage4_cod_codlite_parallel_backbone_policy.md`
 
 ## Decision
 
@@ -177,7 +179,9 @@ safer perceptual preset: decoder_postprocess=unsharp3x3, strength=2.0
 metric-max diagnostic: decoder_postprocess=unsharp3x3, strength=4.0
 ```
 
-This result strengthens the case that Stage 4/5 should learn a decoder-side
-perceptual refinement module. A learned module should not merely sharpen; it
-must restore semantically plausible high-frequency structure while preserving
-actual-byte stream accounting.
+This result strengthens the case that Stage 4/5 should use a model-side
+perceptual reconstruction module. The active version of that idea is no longer
+a generic ResUNet refiner; it is the CoD-Lite / CoD diffusion-backbone
+integration described in Decision 021. The learned module should not merely
+sharpen; it must restore semantically plausible high-frequency structure while
+preserving actual-byte stream accounting.

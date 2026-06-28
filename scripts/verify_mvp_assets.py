@@ -44,6 +44,19 @@ def main() -> None:
     for filename in wanted:
         print(f"{filename:32s} {'OK' if filename in files else 'MISSING'}")
 
+    print("\nCoD Hugging Face assets")
+    cod = pretrained["cod"]
+    files = set(list_repo_files(cod["hf_repo"]))
+    wanted = []
+    for item in cod["backbone_checkpoints"].values():
+        wanted.append(item["filename"])
+        wanted.append(item["config_filename"])
+    for item in cod["one_step_checkpoints"].values():
+        wanted.append(item["filename"])
+        wanted.append(item["config_filename"])
+    for filename in wanted:
+        print(f"{filename:48s} {'OK' if filename in files else 'MISSING'}")
+
     print("\nLocal pretrained paths")
     for key, item in pretrained.items():
         if key == "root":
@@ -54,4 +67,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

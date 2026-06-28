@@ -20,6 +20,8 @@ CoSER-DiCは新規codecとして実装する。
 外部repoをそのままCoSER-DiC本体にしない。
 MVP-v0では、semantic VQ / detail residual / entropy model / auxiliary decoderはCoSER-DiC側で新規学習する。
 Diffusion decoder backboneのみ、CoD-Lite pretrainedを第一候補として初期化に使う。
+CoDは同じGenCodec系の重いbackbone / teacher / upper-bound候補として、
+CoSERのsemantic/detail bitstreamを置き換えない範囲で並行実験を許可する。
 ```
 
 ---
@@ -135,6 +137,7 @@ MVP-v0では、以下だけを実装する。
 7. SemanticConditionedResidualPrior
 8. JointAuxiliaryDecoder
 9. DiffusionDecoder initialized from CoD_Lite_pretrain.pt if feasible
+   or CoD checkpoints in a clearly labeled parallel heavy track
 10. CoSER-specific conditioning adapter / FiLM / control branch
 11. compress()
 12. decompress()
@@ -253,6 +256,19 @@ CoD_Lite_bpp_* checkpoints:
 CoD-Lite architecture:
   decoder backbone / design referenceとして使う。
   CoSER-DiC側で、x_aux, s_hat, d_hat, rate conditionを注入するadapterを新規実装する。
+```
+
+CoD parallel track:
+
+```text
+CoD pixel / latent / one-step checkpoints:
+  CoD-Liteより重いが、同じGenCodec系のcompression-oriented diffusion
+  backboneとして、上限性能・teacher・重いbackbone候補に使ってよい。
+
+制約:
+  CoSER-DiCのsemantic/detail streamとactual bitstreamを置き換えない。
+  CoD native bitstreamをそのままCoSER-DiC本体として扱わない。
+  追加のimage-specific side informationはactual_payload_bppに必ず数える。
 ```
 
 重要:

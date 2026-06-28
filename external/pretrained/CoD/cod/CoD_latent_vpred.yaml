@@ -1,0 +1,24 @@
+# CoD Latent-Space: bpp=0.0039, 512x512
+# Checkpoint: cod/CoD_latent_vpred.pt
+# Sampler: adam2, step=25, cfg=1.25
+model:
+  latent: true
+  denoiser:
+    class_path: cod.models.latent_dit.DDT
+    init_args:
+      in_channels: 4
+      patch_size: 2
+      num_groups: 16
+      hidden_size: 1152
+      num_blocks: 28
+      num_cond_blocks: 22
+      ds: 32
+      codebook_bits: 4
+      up2x: true
+  vae:
+    class_path: cod.models.autoencoder.LatentAE
+    init_args:
+      precompute: false
+      weight_path: stabilityai/sd-vae-ft-ema
+  conditioner:
+    class_path: cod.models.autoencoder.PixelConditioner

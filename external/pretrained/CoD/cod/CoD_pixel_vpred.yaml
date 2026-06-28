@@ -1,0 +1,25 @@
+# CoD Pixel-Space: bpp=0.0039, 512x512
+# Checkpoint: cod/CoD_pixel_vpred.pt
+# Sampler: adam2, step=25, cfg=3.0
+model:
+  latent: false
+  denoiser:
+    class_path: cod.models.pixel_dit.PixNerDiT
+    init_args:
+      in_channels: 3
+      patch_size: 16
+      num_groups: 16
+      hidden_size_x: 64
+      hidden_size: 1152
+      num_blocks: 30
+      num_cond_blocks: 26
+      nerf_mlpratio: 2
+      ds: 32
+      codebook_bits: 4
+      up2x: true
+  vae:
+    class_path: cod.models.autoencoder.PixelAE
+    init_args:
+      scale: 1.0
+  conditioner:
+    class_path: cod.models.autoencoder.PixelConditioner

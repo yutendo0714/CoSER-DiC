@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
 
 
-ARTIFACT_KEYS = ("reference_image", "semantic_only_image", "stage3_image", "triptych_image")
+ARTIFACT_KEYS = ("reference_image", "semantic_only_image", "stage3_image", "stage4_image", "triptych_image")
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -77,14 +78,15 @@ def write_gallery(
         "",
         f"Sorted by `{metric}`.",
         "",
-        "| rank | metric | bpp | source | reference | semantic | stage3 | triptych |",
-        "| ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+        "| rank | metric | bpp | source | reference | semantic | stage3 | stage4 | triptych |",
+        "| ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
     ]
     for rank, row in enumerate(rows, start=1):
         prefix = f"rank{rank:02d}"
         reference = maybe_copy(str(row.get("reference_image", "")), artifact_dir, f"{prefix}_reference")
         semantic = maybe_copy(str(row.get("semantic_only_image", "")), artifact_dir, f"{prefix}_semantic")
         stage3 = maybe_copy(str(row.get("stage3_image", "")), artifact_dir, f"{prefix}_stage3")
+        stage4 = maybe_copy(str(row.get("stage4_image", "")), artifact_dir, f"{prefix}_stage4")
         triptych = maybe_copy(str(row.get("triptych_image", "")), artifact_dir, f"{prefix}_triptych")
         source = str(row.get("path", ""))
         metric_value = float(row[metric])
@@ -92,17 +94,21 @@ def write_gallery(
         lines.append(
             "| "
             f"{rank} | {metric_value:.6g} | {bpp:.6g} | `{source}` | "
-            f"{markdown_image(reference)} | {markdown_image(semantic)} | {markdown_image(stage3)} | "
-            f"{markdown_image(triptych)} |"
+            f"{markdown_image(reference, output_md.parent)} | {markdown_image(semantic, output_md.parent)} | "
+            f"{markdown_image(stage3, output_md.parent)} | {markdown_image(stage4, output_md.parent)} | "
+            f"{markdown_image(triptych, output_md.parent)} |"
         )
     output_md.write_text("\n".join(lines) + "\n")
 
 
-def markdown_image(path_value: str) -> str:
+def markdown_image(path_value: str, base_dir: Path | None = None) -> str:
     if not path_value:
         return ""
     path = Path(path_value)
-    return f"[{path.name}]({path.as_posix()})"
+    link_path = path
+    if base_dir is not None:
+        link_path = Path(os.path.relpath(path, start=base_dir))
+    return f"[{path.name}]({link_path.as_posix()})"
 
 
 def main() -> None:

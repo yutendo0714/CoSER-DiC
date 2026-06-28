@@ -52,7 +52,7 @@ scripts/export_worst_case_gallery.py
 
 # CoD paper-style patch sampling
 --patch-protocol gencodec --gencodec-dataset-filter kodak
---patch-protocol gencodec --gencodec-dataset-filter clic2020_test --gencodec-other-patch-size 128
+--patch-protocol gencodec --gencodec-dataset-filter clic2020_test --gencodec-other-patch-size 256
 
 # CoD-Lite / GLC / DLF-style high-resolution patch sampling
 --patch-protocol gencodec --gencodec-dataset-filter clic2020_test --gencodec-other-patch-size 256
@@ -63,10 +63,12 @@ The patch mode writes an explicit patch cache and records the number of images
 and patches used. The legacy `--patch-size 128 --patch-stride 128` path is an
 internal single-grid diagnostic. CoD/CoD-Lite-style patch FID must be run per
 dataset and labeled with the exact patch size. Kodak512 uses 64px patches with
-a 32px shifted second grid. CoD paper CLIC2020 512-crop uses 128px patches with
-a 64px shifted second grid. CoD-Lite/GLC/DLF-style CLIC or DIV2K settings often
-use 256px patches with a 128px shifted second grid. This patch sampling is for
-FID/KID only; PSNR, LPIPS, and DISTS remain image-level.
+a 32px shifted second grid. GenCodec public `metric.py` defaults to 256px FID
+patches, and CoD-Lite README explicitly states Kodak512=64px and other
+datasets=256px. Use 256px patches with a 128px shifted second grid for
+non-Kodak CoSER paper tables unless reproducing a legacy CLIC128 diagnostic in
+a separately labeled table. This patch sampling is for FID/KID only; PSNR,
+LPIPS, and DISTS remain image-level.
 
 Current backend note: the CoSER utility computes FID/KID with `torch_fidelity`.
 GenCodec's external scripts use `torchmetrics.image.fid.FrechetInceptionDistance`.

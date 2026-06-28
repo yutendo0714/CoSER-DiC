@@ -18,6 +18,8 @@ Priority A for Core MVP:
 
 - CompressAI Cheng2020 / hyperprior anchors
 - CoD-Lite rate checkpoints and `CoD_Lite_pretrain.pt`
+- CoD pixel/latent/one-step checkpoints as parallel heavy diffusion baseline,
+  teacher, and upper-bound backbone candidates
 - RDVQ checkpoints
 - GLC pretrained
 - StableCodec checkpoints
@@ -33,7 +35,10 @@ Priority B:
 Default pretrained usage:
 
 - Use `CoD_Lite_pretrain.pt` only as the diffusion decoder backbone
-  initialization candidate.
+- initialization candidate for the default lightweight Stage-4 path.
+- Run CoD in parallel as a heavier Stage-4 candidate / teacher / upper-bound
+  track when resources permit. CoD is not allowed to replace the CoSER
+  semantic/detail bitstream or bypass actual bpp accounting.
 - Train CoSER semantic VQ, codebook, entropy models, detail residual branch,
   auxiliary decoders, and conditioning adapter from scratch.
 - Do not initialize CoSER semantic VQ from RDVQ/GLC/Control-GIC in MVP-v0.
@@ -60,4 +65,3 @@ Download all Core MVP CoD-Lite assets:
 source .venv/bin/activate
 python scripts/download_cod_lite_assets.py --all --include-yaml
 ```
-

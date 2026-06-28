@@ -7,31 +7,113 @@ cod_lite:
     filename: CoD_Lite_pretrain.pt
     path: external/pretrained/CoD_Lite/CoD_Lite_pretrain.pt
     core_mvp_usage: diffusion_backbone_initialization
+    required_for_mvp_stage4: true
   baseline_checkpoints:
     bpp_0_0039:
       filename: CoD_Lite_bpp_0_0039.pt
       config_filename: CoD_Lite_bpp_0_0039.yaml
       path: external/pretrained/CoD_Lite/CoD_Lite_bpp_0_0039.pt
       expected_bpp: 0.0039
+      required_for_mvp_baseline: true
     bpp_0_0078:
       filename: CoD_Lite_bpp_0_0078.pt
       config_filename: CoD_Lite_bpp_0_0078.yaml
       path: external/pretrained/CoD_Lite/CoD_Lite_bpp_0_0078.pt
       expected_bpp: 0.0078
+      required_for_mvp_baseline: true
     bpp_0_0156:
       filename: CoD_Lite_bpp_0_0156.pt
       config_filename: CoD_Lite_bpp_0_0156.yaml
       path: external/pretrained/CoD_Lite/CoD_Lite_bpp_0_0156.pt
       expected_bpp: 0.0156
+      required_for_mvp_baseline: true
     bpp_0_0312:
       filename: CoD_Lite_bpp_0_0312.pt
       config_filename: CoD_Lite_bpp_0_0312.yaml
       path: external/pretrained/CoD_Lite/CoD_Lite_bpp_0_0312.pt
       expected_bpp: 0.0312
+      required_for_mvp_baseline: true
+
+cod:
+  hf_repo: zhaoyangjia/CoD
+  local_dir: external/pretrained/CoD
+  core_mvp_usage: parallel_heavy_diffusion_backbone_or_teacher
+  default_track_policy: not_default; use alongside CoD-Lite for upper-bound and teacher experiments
+  backbone_checkpoints:
+    pixel_vpred:
+      filename: cod/CoD_pixel_vpred.pt
+      config_filename: cod/CoD_pixel_vpred.yaml
+      path: external/pretrained/CoD/cod/CoD_pixel_vpred.pt
+      size_bytes: 7219416320
+      core_mvp_usage: heavy_pixel_diffusion_backbone_candidate
+      required_for_mvp_parallel_track: true
+    latent_vpred:
+      filename: cod/CoD_latent_vpred.pt
+      config_filename: cod/CoD_latent_vpred.yaml
+      path: external/pretrained/CoD/cod/CoD_latent_vpred.pt
+      size_bytes: 13774859335
+      core_mvp_usage: heavy_latent_diffusion_backbone_candidate
+      required_for_mvp_parallel_track: false
+    latent_vpred_64bits:
+      filename: cod/CoD_latent_vpred_64bits.pt
+      config_filename: cod/CoD_latent_vpred_64bits.yaml
+      path: external/pretrained/CoD/cod/CoD_latent_vpred_64bits.pt
+      size_bytes: 7936815466
+      core_mvp_usage: ultra_low_rate_heavy_backbone_candidate
+      required_for_mvp_parallel_track: false
+  one_step_checkpoints:
+    bpp_0_0039:
+      filename: finetuned_one_step_cod/bpp_0_0039.pt
+      config_filename: finetuned_one_step_cod/bpp_0_0039.yaml
+      path: external/pretrained/CoD/finetuned_one_step_cod/bpp_0_0039.pt
+      size_bytes: 3588430636
+      expected_bpp: 0.0039
+      required_for_mvp_baseline: true
+    bpp_0_0312:
+      filename: finetuned_one_step_cod/bpp_0_0312.pt
+      config_filename: finetuned_one_step_cod/bpp_0_0312.yaml
+      path: external/pretrained/CoD/finetuned_one_step_cod/bpp_0_0312.pt
+      size_bytes: 3490613538
+      expected_bpp: 0.0312
+      required_for_mvp_baseline: true
+    bpp_0_1250:
+      filename: finetuned_one_step_cod/bpp_0_1250.pt
+      config_filename: finetuned_one_step_cod/bpp_0_1250.yaml
+      path: external/pretrained/CoD/finetuned_one_step_cod/bpp_0_1250.pt
+      size_bytes: 3488252512
+      expected_bpp: 0.1250
+      required_for_mvp_baseline: false
 
 rdvq:
   local_dir: external/pretrained/RDVQ
   core_mvp_usage: baseline_only
+  hf_repo: CVLUESTC/RDVQ
+  checkpoints:
+    lam_0_8_tau_0_01:
+      filename: lam_0.8_tau_0.01.pt
+      path: external/pretrained/RDVQ/lam_0.8_tau_0.01.pt
+      size_bytes: 1007856746
+      required_for_mvp_baseline: true
+    lam_1_2_tau_0_01:
+      filename: lam_1.2_tau_0.01.pt
+      path: external/pretrained/RDVQ/lam_1.2_tau_0.01.pt
+      size_bytes: 1007856746
+      required_for_mvp_baseline: true
+    lam_4_8_tau_0_1:
+      filename: lam_4.8_tau_0.1.pt
+      path: external/pretrained/RDVQ/lam_4.8_tau_0.1.pt
+      size_bytes: 1007856193
+      required_for_mvp_baseline: true
+    lam_7_2_tau_0_1:
+      filename: lam_7.2_tau_0.1.pt
+      path: external/pretrained/RDVQ/lam_7.2_tau_0.1.pt
+      size_bytes: 1007856193
+      required_for_mvp_baseline: true
+    lam_12_tau_0_1:
+      filename: lam_12_tau_0.1.pt
+      path: external/pretrained/RDVQ/lam_12_tau_0.1.pt
+      size_bytes: 1007855640
+      required_for_mvp_baseline: true
 
 glc:
   local_dir: external/pretrained/GLC
@@ -56,4 +138,3 @@ rdeic:
 resulic:
   local_dir: external/pretrained/ResULIC
   core_mvp_usage: baseline_only
-

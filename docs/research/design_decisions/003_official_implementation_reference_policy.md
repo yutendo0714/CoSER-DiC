@@ -101,7 +101,10 @@ entropy models:
   official repos as L1-L2 references.
 
 diffusion decoder:
-  CoD-Lite pretrained may be L3 initialization/backbone.
+  CoD-Lite pretrained may be L3 initialization/backbone for the default
+  lightweight path.
+  CoD pretrained / one-step checkpoints may be L3 heavy backbone or teacher
+  candidates in a parallel Stage 4 track.
 
 baselines:
   official repos can be L0 wrappers/evaluators.
@@ -113,7 +116,10 @@ The only default pretrained model used inside the Core-MVP should be:
 CoD_Lite_pretrain.pt
 ```
 
-and only for the diffusion reconstruction backbone, if feasible.
+and only for the diffusion reconstruction backbone, if feasible. CoD assets are
+allowed in parallel experiments as a heavier GenCodec-family backbone/teacher,
+but they are not allowed to replace the CoSER semantic/detail bitstreams or
+bypass actual bpp accounting.
 
 RDVQ, GLC, Control-GIC, StableCodec, AEIC, OneDC, ResULIC, and RDEIC are references and baselines unless a later ablation explicitly promotes a component.
 
@@ -476,7 +482,8 @@ CoD-Lite:
 
 CoD:
   - compression-oriented diffusion pretraining concept
-  - possible teacher/foundation model role, not Core-MVP default backbone
+  - parallel heavy backbone / teacher / foundation model role
+  - not the default lightweight Core-MVP backbone
 
 StableCodec:
   - actual compress/decompress API around a diffusion codec
@@ -492,6 +499,8 @@ CoSER decision:
 
 ```text
 Use CoD_Lite_pretrain.pt only as a backbone initialization candidate.
+Use CoD checkpoints in parallel when resources permit, primarily for upper-bound
+and teacher experiments.
 Implement CoSER-specific conditioning adapter for:
   - x_aux
   - semantic token features

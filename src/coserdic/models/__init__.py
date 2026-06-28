@@ -3,6 +3,7 @@
 from .conditioning_adapter import CoSERConditioningAdapter, ConditioningAdapterConfig
 from .coserdic import CoSERDiC, CoSEROutput
 from .diffusion_decoder import CoSERDiffusionDecoder, DiffusionDecoderConfig
+from .decoder_refiner import DecoderSideRefiner, DecoderSideRefinerConfig
 from .postprocess import DECODER_POSTPROCESS_MODES, apply_decoder_postprocess, gaussian_blur_3x3
 from .residual_detail import (
     ResidualDetailAutoEncoder,
@@ -40,6 +41,8 @@ __all__ = [
     "DECODER_POSTPROCESS_MODES",
     "DifferentiableVQ",
     "DiffusionDecoderConfig",
+    "DecoderSideRefiner",
+    "DecoderSideRefinerConfig",
     "apply_decoder_postprocess",
     "gaussian_blur_3x3",
     "ResidualDetailAutoEncoder",

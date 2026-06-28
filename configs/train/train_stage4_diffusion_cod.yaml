@@ -1,0 +1,53 @@
+experiment:
+  name: coserdic_stage4_diffusion_cod
+  seed: 42
+  scope: core_mvp_v0_parallel_heavy_track
+  target_bpp: [0.01, 0.03, 0.05]
+
+model:
+  load_stage3_checkpoint: null
+  diffusion_decoder:
+    type: one_or_few_step
+    initialization: cod_pretrain
+    primary_pretrained_path: external/pretrained/CoD/cod/CoD_pixel_vpred.pt
+    primary_config_path: external/pretrained/CoD/cod/CoD_pixel_vpred.yaml
+    fallback_pretrained_path: external/pretrained/CoD/finetuned_one_step_cod/bpp_0_0039.pt
+    fallback_config_path: external/pretrained/CoD/finetuned_one_step_cod/bpp_0_0039.yaml
+    freeze_backbone_initially: true
+    train_adapters: true
+    conditioning:
+      aux_image: true
+      semantic_tokens: true
+      detail_latents: true
+      rate_embedding: true
+      mode: film_multiscale
+    core_policy:
+      parallel_to_cod_lite: true
+      train_coserdic_adapter_from_scratch: true
+      do_not_replace_coser_bitstream_with_cod_native_stream: true
+      count_all_image_specific_side_information_in_actual_payload_bpp: true
+
+optimization:
+  optimizer: adamw
+  lr_adapter: 1.0e-5
+  lr_backbone: 0.0
+  mixed_precision: true
+  gradient_checkpointing: true
+
+loss:
+  rate_total: 1.0
+  l1_hat: 0.5
+  lpips_hat: 0.3
+  dists_hat: 0.2
+  adversarial: 0.0
+  semantic_consistency: 0.1
+  l1_aux_anchor: 0.5
+  teacher_distillation_from_cod: optional
+
+validation:
+  compare_x_aux_and_x_hat: true
+  compare_cod_lite_track: true
+  report_semantic_metrics: true
+  save_failure_candidates: true
+  use_actual_bitstream: true
+  datasets: [kodak, clic2020_test, div2k_val]

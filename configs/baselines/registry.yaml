@@ -62,6 +62,29 @@ baselines:
       - treating CoD-Lite rate checkpoints as CoSER-DiC final models
       - assuming CoD-Lite natively accepts semantic/detail representations
 
+  cod:
+    priority: A
+    mvp_role: parallel_heavy_diffusion_backbone_teacher_and_baseline
+    category: compression_native_diffusion_foundation_codec
+    repo: https://github.com/microsoft/GenCodec.git
+    subdir: CoD
+    pretrained_repo: zhaoyangjia/CoD
+    paper_or_project: https://github.com/microsoft/GenCodec
+    license_hint: MIT
+    clone: true
+    install_mode: external
+    actual_bpp: verify
+    checkpoint_status: huggingface_verified
+    core_integration_allowed: diffusion_backbone_or_teacher_only
+    allowed_core_usage:
+      - run in parallel with CoD-Lite for Stage-4 upper-bound experiments
+      - use CoD pixel/latent pretrained models as heavy diffusion backbone candidates if compatible
+      - use CoD as a teacher or perceptual reconstruction reference for CoSER adapters
+    forbidden_core_usage:
+      - replacing CoSER semantic/detail bitstreams with CoD native bitstream as the method
+      - treating CoD rate checkpoints as CoSER-DiC final models
+      - allowing CoD-specific side information to bypass actual_payload_bpp accounting
+
   rdvq:
     priority: A
     mvp_role: vq_baseline_and_rd_vq_reference

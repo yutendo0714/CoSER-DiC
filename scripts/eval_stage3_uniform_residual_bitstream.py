@@ -40,6 +40,8 @@ from coserdic.models import (
     CausalTokenPrior,
     CausalTokenPriorConfig,
     DECODER_POSTPROCESS_MODES,
+    DecoderSideRefiner,
+    DecoderSideRefinerConfig,
     SemanticVQAutoEncoder,
     SemanticVQConfig,
     apply_decoder_postprocess,
@@ -115,14 +117,18 @@ def mean(values: list[float]) -> float:
     return float(sum(values) / max(len(values), 1))
 
 
-def decode_indices_to_image(model: SemanticVQAutoEncoder, cfg: SemanticVQConfig, indices: torch.Tensor) -> torch.Tensor:
+def decode_indices_to_latent(model: SemanticVQAutoEncoder, cfg: SemanticVQConfig, indices: torch.Tensor) -> torch.Tensor:
     flat = indices.to(model.vq.embedding.weight.device, dtype=torch.long).reshape(-1)
     embedding = model.vq.embedding.weight.float()
     if cfg.normalize_latent:
         embedding = F.normalize(embedding, dim=1) * math.sqrt(float(cfg.latent_channels))
     quant = embedding.index_select(0, flat)
     b, h, w = indices.shape
-    quant = quant.view(b, h, w, cfg.latent_channels).permute(0, 3, 1, 2).contiguous()
+    return quant.view(b, h, w, cfg.latent_channels).permute(0, 3, 1, 2).contiguous()
+
+
+def decode_indices_to_image(model: SemanticVQAutoEncoder, cfg: SemanticVQConfig, indices: torch.Tensor) -> torch.Tensor:
+    quant = decode_indices_to_latent(model, cfg, indices)
     return model.decoder(quant.to(dtype=next(model.parameters()).dtype))
 
 
@@ -315,6 +321,7 @@ def main() -> None:
     parser.add_argument("--detail-gain", type=float, default=1.0)
     parser.add_argument("--decoder-postprocess", choices=DECODER_POSTPROCESS_MODES, default="none")
     parser.add_argument("--decoder-postprocess-strength", type=float, default=0.0)
+    parser.add_argument("--decoder-refiner-checkpoint", default="")
     parser.add_argument(
         "--detail-codec",
         choices=[
@@ -363,6 +370,15 @@ def main() -> None:
     model = SemanticVQAutoEncoder(cfg).to(device)
     model.load_state_dict(checkpoint["model"])
     model.eval()
+
+    decoder_refiner: DecoderSideRefiner | None = None
+    decoder_refiner_payload: dict[str, object] = {}
+    if args.decoder_refiner_checkpoint:
+        decoder_refiner_payload = torch.load(args.decoder_refiner_checkpoint, map_location="cpu", weights_only=False)
+        refiner_cfg = DecoderSideRefinerConfig(**decoder_refiner_payload["refiner_config"])
+        decoder_refiner = DecoderSideRefiner(refiner_cfg).to(device)
+        decoder_refiner.load_state_dict(decoder_refiner_payload["model"])
+        decoder_refiner.eval()
 
     semantic_prior_payload = json.loads(Path(args.semantic_prior).read_text())
     semantic_code = TopKEscapeHuffmanCode.from_dict(semantic_prior_payload)
@@ -442,6 +458,8 @@ def main() -> None:
             "semantic_only": reconstruction_root / "semantic_only",
             "stage3": reconstruction_root / "stage3",
         }
+        if decoder_refiner is not None:
+            reconstruction_dirs["stage4"] = reconstruction_root / "stage4"
         if args.save_reconstruction_triptychs:
             reconstruction_dirs["triptych"] = reconstruction_root / "triptych"
         for directory in reconstruction_dirs.values():
@@ -488,6 +506,22 @@ def main() -> None:
                 "stage3_dists": [],
             }
         )
+    if decoder_refiner is not None:
+        metrics.update(
+            {
+                "stage4_psnr": [],
+                "stage4_l1": [],
+                "stage4_ms_ssim": [],
+                "stage4_refiner_residual_abs_mean": [],
+            }
+        )
+        if args.compute_perceptual:
+            metrics.update(
+                {
+                    "stage4_lpips_alex": [],
+                    "stage4_dists": [],
+                }
+            )
     if isinstance(residual_code, StaticResidualGridHybridHuffmanCode):
         metrics["detail_hybrid_semantic_mode"] = []
 
@@ -518,7 +552,11 @@ def main() -> None:
                     shape=tuple(indices.shape),
                     device=device,
                 )
-                x_sem = decode_indices_to_image(model, cfg, decoded_indices.unsqueeze(0)).clamp(0, 1)
+                semantic_latent = decode_indices_to_latent(model, cfg, decoded_indices.unsqueeze(0)).to(
+                    device=device,
+                    dtype=next(model.parameters()).dtype,
+                )
+                x_sem = model.decoder(semantic_latent).clamp(0, 1)
                 token_roundtrip = bool(torch.equal(decoded_indices, indices))
 
                 residual = x_i - x_sem
@@ -564,6 +602,12 @@ def main() -> None:
                     mode=args.decoder_postprocess,
                     strength=float(args.decoder_postprocess_strength),
                 )
+                x_stage4: torch.Tensor | None = None
+                refiner_residual_abs_mean: float | None = None
+                if decoder_refiner is not None:
+                    refined = decoder_refiner(x_hat, x_sem, residual_hat, semantic_latent)
+                    x_stage4 = refined["x_refined"].clamp(0.0, 1.0)
+                    refiner_residual_abs_mean = float(refined["refiner_residual"].abs().mean().item())
 
                 common_header = {
                     "codec_version": "s3urg0",
@@ -647,10 +691,19 @@ def main() -> None:
                 stage3_psnr = float(psnr(x_i, x_hat).item())
                 stage3_l1 = float(torch.mean(torch.abs(x_hat - x_i)).item())
                 stage3_ms_ssim = float(ms_ssim(x_hat, x_i, data_range=1.0, size_average=True).item())
+                stage4_psnr: float | None = None
+                stage4_l1: float | None = None
+                stage4_ms_ssim: float | None = None
+                if x_stage4 is not None:
+                    stage4_psnr = float(psnr(x_i, x_stage4).item())
+                    stage4_l1 = float(torch.mean(torch.abs(x_stage4 - x_i)).item())
+                    stage4_ms_ssim = float(ms_ssim(x_stage4, x_i, data_range=1.0, size_average=True).item())
                 semantic_only_lpips_alex: float | None = None
                 semantic_only_dists: float | None = None
                 stage3_lpips_alex: float | None = None
                 stage3_dists: float | None = None
+                stage4_lpips_alex: float | None = None
+                stage4_dists: float | None = None
                 if perceptual is not None:
                     semantic_perceptual = perceptual(x_i, x_sem)
                     stage3_perceptual = perceptual(x_i, x_hat)
@@ -658,6 +711,10 @@ def main() -> None:
                     semantic_only_dists = semantic_perceptual.dists
                     stage3_lpips_alex = stage3_perceptual.lpips_alex
                     stage3_dists = stage3_perceptual.dists
+                    if x_stage4 is not None:
+                        stage4_perceptual = perceptual(x_i, x_stage4)
+                        stage4_lpips_alex = stage4_perceptual.lpips_alex
+                        stage4_dists = stage4_perceptual.dists
                 semantic_topk_hit_rate = float(semantic_stats["topk_hit_rate"])
                 residual_grid_abs_mean = float(torch.mean(torch.abs(residual_grid)).item())
                 residual_grid_std = float(torch.std(residual_grid.float(), unbiased=False).item())
@@ -685,11 +742,19 @@ def main() -> None:
                 metrics["stage3_psnr"].append(stage3_psnr)
                 metrics["stage3_l1"].append(stage3_l1)
                 metrics["stage3_ms_ssim"].append(stage3_ms_ssim)
+                if x_stage4 is not None:
+                    metrics["stage4_psnr"].append(float(stage4_psnr))
+                    metrics["stage4_l1"].append(float(stage4_l1))
+                    metrics["stage4_ms_ssim"].append(float(stage4_ms_ssim))
+                    metrics["stage4_refiner_residual_abs_mean"].append(float(refiner_residual_abs_mean))
                 if args.compute_perceptual:
                     metrics["semantic_only_lpips_alex"].append(float(semantic_only_lpips_alex))
                     metrics["semantic_only_dists"].append(float(semantic_only_dists))
                     metrics["stage3_lpips_alex"].append(float(stage3_lpips_alex))
                     metrics["stage3_dists"].append(float(stage3_dists))
+                    if x_stage4 is not None:
+                        metrics["stage4_lpips_alex"].append(float(stage4_lpips_alex))
+                        metrics["stage4_dists"].append(float(stage4_dists))
                 metrics["semantic_topk_hit_rate"].append(semantic_topk_hit_rate)
                 metrics["semantic_token_roundtrip"].append(semantic_roundtrip_ok)
                 metrics["detail_code_roundtrip"].append(detail_roundtrip_ok)
@@ -728,6 +793,18 @@ def main() -> None:
                     "residual_grid_clip_ratio": residual_grid_clip_ratio,
                     "detail_code_entropy_bits": detail_entropy_bits,
                 }
+                if x_stage4 is not None:
+                    per_image_record.update(
+                        {
+                            "stage4_psnr": stage4_psnr,
+                            "stage4_psnr_delta_vs_stage3": float(stage4_psnr) - stage3_psnr,
+                            "stage4_l1": stage4_l1,
+                            "stage4_l1_delta_vs_stage3": float(stage4_l1) - stage3_l1,
+                            "stage4_ms_ssim": stage4_ms_ssim,
+                            "stage4_ms_ssim_delta_vs_stage3": float(stage4_ms_ssim) - stage3_ms_ssim,
+                            "stage4_refiner_residual_abs_mean": refiner_residual_abs_mean,
+                        }
+                    )
                 if detail_hybrid_mode is not None:
                     per_image_record["detail_hybrid_semantic_mode"] = detail_hybrid_mode
                 if args.compute_perceptual:
@@ -742,6 +819,15 @@ def main() -> None:
                             "stage3_dists_delta_vs_semantic_only": float(stage3_dists) - float(semantic_only_dists),
                         }
                     )
+                    if x_stage4 is not None:
+                        per_image_record.update(
+                            {
+                                "stage4_lpips_alex": stage4_lpips_alex,
+                                "stage4_lpips_alex_delta_vs_stage3": float(stage4_lpips_alex) - float(stage3_lpips_alex),
+                                "stage4_dists": stage4_dists,
+                                "stage4_dists_delta_vs_stage3": float(stage4_dists) - float(stage3_dists),
+                            }
+                        )
                 if args.save_reconstructions and (
                     args.save_reconstruction_limit <= 0 or global_index < args.save_reconstruction_limit
                 ):
@@ -760,13 +846,16 @@ def main() -> None:
                         "semantic_only": str(semantic_path),
                         "stage3": str(stage3_path),
                     }
+                    if x_stage4 is not None:
+                        stage4_path = reconstruction_dirs["stage4"] / image_name
+                        save_image(x_stage4.detach().cpu(), stage4_path)
+                        manifest_record["stage4"] = str(stage4_path)
                     if args.save_reconstruction_triptychs:
                         triptych_path = reconstruction_dirs["triptych"] / image_name
-                        save_image(
-                            torch.cat([x_i.detach().cpu(), x_sem.detach().cpu(), x_hat.detach().cpu()], dim=0),
-                            triptych_path,
-                            nrow=3,
-                        )
+                        triptych_tensors = [x_i.detach().cpu(), x_sem.detach().cpu(), x_hat.detach().cpu()]
+                        if x_stage4 is not None:
+                            triptych_tensors.append(x_stage4.detach().cpu())
+                        save_image(torch.cat(triptych_tensors, dim=0), triptych_path, nrow=len(triptych_tensors))
                         manifest_record["triptych"] = str(triptych_path)
                     per_image_record.update(
                         {
@@ -775,6 +864,8 @@ def main() -> None:
                             "stage3_image": str(stage3_path),
                         }
                     )
+                    if x_stage4 is not None:
+                        per_image_record["stage4_image"] = str(manifest_record["stage4"])
                     if args.save_reconstruction_triptychs:
                         per_image_record["triptych_image"] = str(manifest_record["triptych"])
                     reconstruction_manifest.append(manifest_record)
@@ -784,11 +875,10 @@ def main() -> None:
                     (stream_dir / f"image{global_index:05d}.coser").write_bytes(stage3_stream)
                 if not sample_written:
                     sample_path = out_dir / "stage3_uniform_residual_grid.png"
-                    save_image(
-                        torch.cat([x_i.detach().cpu(), x_sem.detach().cpu(), x_hat.detach().cpu()], dim=0),
-                        sample_path,
-                        nrow=1,
-                    )
+                    sample_tensors = [x_i.detach().cpu(), x_sem.detach().cpu(), x_hat.detach().cpu()]
+                    if x_stage4 is not None:
+                        sample_tensors.append(x_stage4.detach().cpu())
+                    save_image(torch.cat(sample_tensors, dim=0), sample_path, nrow=1)
                     sample_written = True
 
     summary: dict[str, object] = {
@@ -811,6 +901,12 @@ def main() -> None:
         "detail_gain": float(args.detail_gain),
         "decoder_postprocess": args.decoder_postprocess,
         "decoder_postprocess_strength": float(args.decoder_postprocess_strength),
+        "decoder_refiner_checkpoint": str(args.decoder_refiner_checkpoint),
+        "decoder_refiner_enabled": decoder_refiner is not None,
+        "decoder_refiner_config": decoder_refiner_payload.get("refiner_config", {}) if decoder_refiner is not None else {},
+        "decoder_refiner_payload_policy": (
+            "fixed decoder-side weights; no additional actual_payload_bpp" if decoder_refiner is not None else ""
+        ),
         "detail_codec": args.detail_codec,
         "stream_header_codec": args.stream_header_codec,
         "stream_checksum_codec": args.stream_checksum_codec,
@@ -846,6 +942,19 @@ def main() -> None:
         summary["stage3_dists_delta_vs_semantic_only"] = (
             float(summary["stage3_dists_mean"]) - float(summary["semantic_only_dists_mean"])
         )
+    if decoder_refiner is not None:
+        summary["stage4_psnr_delta_vs_stage3"] = float(summary["stage4_psnr_mean"]) - float(summary["stage3_psnr_mean"])
+        summary["stage4_l1_delta_vs_stage3"] = float(summary["stage4_l1_mean"]) - float(summary["stage3_l1_mean"])
+        summary["stage4_ms_ssim_delta_vs_stage3"] = float(summary["stage4_ms_ssim_mean"]) - float(
+            summary["stage3_ms_ssim_mean"]
+        )
+        if args.compute_perceptual:
+            summary["stage4_lpips_alex_delta_vs_stage3"] = float(summary["stage4_lpips_alex_mean"]) - float(
+                summary["stage3_lpips_alex_mean"]
+            )
+            summary["stage4_dists_delta_vs_stage3"] = float(summary["stage4_dists_mean"]) - float(
+                summary["stage3_dists_mean"]
+            )
     summary["all_semantic_tokens_roundtrip"] = bool(all(v == 1.0 for v in metrics["semantic_token_roundtrip"]))
     summary["all_detail_codes_roundtrip"] = bool(all(v == 1.0 for v in metrics["detail_code_roundtrip"]))
     summary["roundtrip_failure_count"] = len(roundtrip_failures)
