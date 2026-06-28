@@ -71,6 +71,27 @@ CoD-Lite: 2.3G
 RDVQ:     4.7G
 ```
 
+## Evaluated Baseline Anchors
+
+CoD-Lite official Kodak24 512 baseline:
+
+```text
+runner:
+  scripts/eval_cod_lite_official_baseline.py
+
+memo:
+  docs/research/baselines/cod_lite_official_baseline_20260628.md
+
+result roots:
+  results/baselines/cod_lite_official/20260628_cod_lite_0039_kodak24_stage3refs512
+  results/baselines/cod_lite_official/20260628_cod_lite_0078_kodak24_stage3refs512
+  results/baselines/cod_lite_official/20260628_cod_lite_0156_kodak24_stage3refs512
+  results/baselines/cod_lite_official/20260628_cod_lite_0312_kodak24_stage3refs512
+```
+
+The reported main rate is `actual_payload_bpp`, computed from the official
+`.cod` payload size minus the 4-byte width/height header.
+
 ## Deferred
 
 StableCodec:

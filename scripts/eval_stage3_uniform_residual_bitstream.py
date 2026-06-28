@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import random
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -58,13 +59,20 @@ class CenterCropImageDataset(Dataset):
         crop_size: int,
         limit: int = 0,
         image_paths: list[str | Path] | None = None,
+        shuffle_images: bool = False,
+        shuffle_seed: int = 0,
     ) -> None:
         if image_paths is None:
             self.paths = []
             for root in roots:
                 self.paths.extend(sorted(p for p in Path(root).rglob("*") if p.suffix.lower() in IMAGE_SUFFIXES))
         else:
+            if shuffle_images:
+                raise ValueError("--shuffle-images is only for --image-root training-cache exports, not eval protocols")
             self.paths = [Path(path) for path in image_paths]
+        if shuffle_images:
+            rng = random.Random(int(shuffle_seed))
+            rng.shuffle(self.paths)
         if limit:
             self.paths = self.paths[:limit]
         if not self.paths:
@@ -313,6 +321,8 @@ def main() -> None:
     parser.add_argument("--output-dir", default="results/bitstreams/stage3_uniform_residual")
     parser.add_argument("--crop-size", type=int, default=None)
     parser.add_argument("--max-images", type=int, default=None)
+    parser.add_argument("--shuffle-images", action="store_true")
+    parser.add_argument("--shuffle-seed", type=int, default=1234)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--detail-downsample-factor", type=int, default=32)
@@ -342,6 +352,11 @@ def main() -> None:
     parser.add_argument("--save-reconstructions", action="store_true")
     parser.add_argument("--save-reconstruction-limit", type=int, default=0)
     parser.add_argument("--save-reconstruction-triptychs", action="store_true")
+    parser.add_argument(
+        "--save-decoder-feature-cache",
+        action="store_true",
+        help="Save decoder-available semantic tokens/latents and detail grids next to the reconstruction manifest.",
+    )
     parser.add_argument("--allow-roundtrip-failures", action="store_true")
     parser.add_argument("--compute-perceptual", action="store_true")
     parser.add_argument("--wandb-mode", default="offline")
@@ -438,7 +453,14 @@ def main() -> None:
         roots = [str(root) for selection in selections for root in selection.source_roots]
     if not roots and eval_image_paths is None:
         raise ValueError("no evaluation roots found; pass --image-root")
-    dataset = CenterCropImageDataset(roots, crop_size=args.crop_size, limit=args.max_images, image_paths=eval_image_paths)
+    dataset = CenterCropImageDataset(
+        roots,
+        crop_size=args.crop_size,
+        limit=args.max_images,
+        image_paths=eval_image_paths,
+        shuffle_images=args.shuffle_images,
+        shuffle_seed=args.shuffle_seed,
+    )
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     perceptual = PerceptualMetricBundle().to(device).eval() if args.compute_perceptual else None
 
@@ -464,6 +486,10 @@ def main() -> None:
             reconstruction_dirs["triptych"] = reconstruction_root / "triptych"
         for directory in reconstruction_dirs.values():
             directory.mkdir(parents=True, exist_ok=True)
+    feature_cache_dir: Path | None = None
+    if args.save_decoder_feature_cache:
+        feature_cache_dir = out_dir / "decoder_feature_cache"
+        feature_cache_dir.mkdir(parents=True, exist_ok=True)
 
     coder = CoSERBitstream(header_codec=args.stream_header_codec, checksum_codec=args.stream_checksum_codec)
     sample_written = False
@@ -846,6 +872,23 @@ def main() -> None:
                         "semantic_only": str(semantic_path),
                         "stage3": str(stage3_path),
                     }
+                    if feature_cache_dir is not None:
+                        cache_path = feature_cache_dir / f"{Path(image_name).stem}.pt"
+                        torch.save(
+                            {
+                                "index": int(global_index),
+                                "source_path": original_path,
+                                "semantic_indices": decoded_indices.detach().cpu().to(torch.int16),
+                                "semantic_latent": semantic_latent.detach().cpu().to(torch.bfloat16),
+                                "residual_grid_hat": residual_grid_hat.detach().cpu().to(torch.bfloat16),
+                                "detail_codes": decoded_detail_codes.detach().cpu().to(torch.int16),
+                                "semantic_shape": tuple(int(v) for v in decoded_indices.shape),
+                                "semantic_latent_shape": tuple(int(v) for v in semantic_latent.shape),
+                                "detail_shape": tuple(int(v) for v in decoded_detail_codes.shape),
+                            },
+                            cache_path,
+                        )
+                        manifest_record["decoder_feature_cache"] = str(cache_path)
                     if x_stage4 is not None:
                         stage4_path = reconstruction_dirs["stage4"] / image_name
                         save_image(x_stage4.detach().cpu(), stage4_path)
@@ -918,10 +961,14 @@ def main() -> None:
         "eval_image_roots": roots,
         "eval_protocol_summary": eval_protocol_summary or {},
         "deterministic_eval": not args.allow_nondeterministic_eval,
+        "shuffle_images": bool(args.shuffle_images),
+        "shuffle_seed": int(args.shuffle_seed),
         "compute_perceptual": bool(args.compute_perceptual),
         "save_reconstructions": bool(args.save_reconstructions),
         "save_reconstruction_limit": int(args.save_reconstruction_limit),
         "save_reconstruction_triptychs": bool(args.save_reconstruction_triptychs),
+        "save_decoder_feature_cache": bool(args.save_decoder_feature_cache),
+        "decoder_feature_cache_dir": str(feature_cache_dir or ""),
         "residual_code": summarize_residual_code(residual_code),
     }
     for metric_name, values in metrics.items():

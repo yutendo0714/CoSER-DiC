@@ -26,10 +26,11 @@ Read in this order:
 19. `design_decisions/019_stage1_rateprior_b16_reconnection.md`
 20. `design_decisions/020_stage4_decoder_side_refiner.md`
 21. `design_decisions/021_stage4_cod_codlite_parallel_backbone_policy.md`
-22. `core_mvp_literature_update_2026-06-27.md`
-23. `baseline_registry.md`
-24. `baselines/external_repo_status_mvp.md`
-25. `baselines/pretrained_asset_inventory_20260628.md`
+22. `design_decisions/022_stage4_cod_lite_adapter_bootstrap.md`
+23. `core_mvp_literature_update_2026-06-27.md`
+24. `baseline_registry.md`
+25. `baselines/external_repo_status_mvp.md`
+26. `baselines/pretrained_asset_inventory_20260628.md`
 
 For day-to-day continuation, start from `current_mvp_state_20260628.md`. It
 records the active Stage 1-3 anchor, the fact that the ResUNet refiner is
