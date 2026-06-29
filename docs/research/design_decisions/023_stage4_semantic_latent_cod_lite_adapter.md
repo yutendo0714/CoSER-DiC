@@ -402,7 +402,7 @@ detail context, and base-condition statistics. The gate must be fully
 deterministic from decoded payload/model state, or else any transmitted gate
 bits must be counted in `actual_payload_bpp`.
 
-Deterministic learned-gate probe:
+Deterministic RGB output-gate diagnostic:
 
 ```text
 implementation:
@@ -457,16 +457,58 @@ learned gate:
   MS-SSIM, LPIPS, DISTS, and patch-FID are slightly better
 ```
 
-Interpretation:
+Diagnostic interpretation:
 
 ```text
-the learned gate is not a Stage 5 result and does not close the external
-CoD-Lite gap, but it is the first deterministic no-extra-bit replacement
-candidate for fixed alpha0.30
+the learned RGB output gate is not a Stage 5 result and does not close the
+external CoD-Lite gap
 
-the current gate is still too simple and trained on a small cache; promote it
-only as a Stage-4 mechanism to continue improving, not as a paper operating
-point
+it is a useful no-extra-bit diagnostic for the fixed-alpha tradeoff, but it is
+still post-hoc RGB output blending and should not be promoted as the method
+```
+
+Mainline condition-space gate:
+
+```text
+policy:
+  025_stage4_no_posthoc_rgb_mainline_condition_gate.md
+
+implementation:
+  CoSERToCoDLiteConditionGate
+  scripts/train_stage4_cod_lite_condition_gate.py
+  scripts/eval_stage4_cod_lite_adapter.py --condition-gate-checkpoint
+
+train:
+  20260628_stage4_cod_lite_condition_gate_fidelity_probe300_b1ga2
+
+eval:
+  20260628_stage4_cod_lite_condition_gate_fidelity_probe300_b1ga2_full552_eval
+```
+
+Full552 metrics at unchanged actual_payload_bpp, with no RGB output blend:
+
+```text
+actual_payload_bpp:
+  0.013999
+
+Stage 3:
+  PSNR / MS-SSIM: 21.9951 / 0.7348
+  LPIPS / DISTS: 0.5758 / 0.3536
+
+condition gate:
+  condition_gate_mean: 0.4327
+  PSNR / MS-SSIM:     21.3169 / 0.7161
+  LPIPS / DISTS:      0.5255 / 0.3437
+```
+
+Mainline interpretation:
+
+```text
+condition-space gate is the correct mechanism class, but this first probe is
+not faithful enough and is not promoted
+
+the result confirms that RGB blending was hiding a real condition-control gap
+inside the CoD-Lite integration
 ```
 
 Implementation caution:

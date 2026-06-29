@@ -12,7 +12,12 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from coserdic.models import CoDLiteOneStepBackbone, CoDLiteOneStepBackboneConfig
+from coserdic.models import (
+    CoDLiteOneStepBackbone,
+    CoDLiteOneStepBackboneConfig,
+    apply_lora_adapters_from_config,
+    load_named_parameter_state,
+)
 from coserdic.utils import seed_everything
 from coserdic.utils.wandb_utils import init_wandb
 from eval_stage4_cod_lite_adapter import (
@@ -192,6 +197,10 @@ def main() -> None:
     parser.add_argument("--hist-bins", type=int, default=100)
     parser.add_argument("--hist-min", type=float, default=-5.0)
     parser.add_argument("--hist-max", type=float, default=5.0)
+    parser.add_argument("--condition-delta-ablation", choices=("normal", "zero"), default="normal")
+    parser.add_argument("--semantic-latent-ablation", choices=("normal", "zero", "shuffle"), default="normal")
+    parser.add_argument("--detail-context-ablation", choices=("normal", "zero", "shuffle"), default="normal")
+    parser.add_argument("--ablation-shuffle-seed", type=int, default=1234)
     parser.add_argument("--wandb-mode", default="offline")
     parser.add_argument("--seed", type=int, default=1234)
     args = parser.parse_args()
@@ -208,6 +217,9 @@ def main() -> None:
     payload = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     backbone_cfg = CoDLiteOneStepBackboneConfig(**payload["backbone_config"])
     backbone = CoDLiteOneStepBackbone.load(backbone_cfg, device=device)
+    apply_lora_adapters_from_config(backbone.net, payload.get("backbone_lora_config", {}))
+    if payload.get("backbone_trainable_state"):
+        load_named_parameter_state(backbone.net, payload["backbone_trainable_state"], strict=True)
     backbone.eval()
     adapter = build_adapter_from_payload(payload).to(device)
     adapter.load_state_dict(payload["model"])
@@ -234,6 +246,9 @@ def main() -> None:
         crop_size=args.crop_size,
         semantic_channels=semantic_channels,
         detail_context=detail_context,
+        semantic_latent_ablation=args.semantic_latent_ablation,
+        detail_context_ablation=args.detail_context_ablation,
+        shuffle_seed=args.ablation_shuffle_seed,
     )
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
 
@@ -252,6 +267,10 @@ def main() -> None:
             "hist_bins": args.hist_bins,
             "hist_min": args.hist_min,
             "hist_max": args.hist_max,
+            "condition_delta_ablation": args.condition_delta_ablation,
+            "semantic_latent_ablation": args.semantic_latent_ablation,
+            "detail_context_ablation": args.detail_context_ablation,
+            "ablation_shuffle_seed": args.ablation_shuffle_seed,
             "wandb": {"mode": args.wandb_mode, "project": "coserdic"},
         },
         run_name=run_name,
@@ -289,6 +308,8 @@ def main() -> None:
                     base_condition=base_cond,
                     detail_context=detail_context_tensor,
                 )
+                if args.condition_delta_ablation == "zero":
+                    cond_delta = torch.zeros_like(cond_delta)
                 pred_cond = apply_condition_residual(
                     base_cond,
                     cond_delta,
@@ -341,6 +362,10 @@ def main() -> None:
             ),
             "condition_residual_scale": residual_scale,
             "condition_residual_tanh": residual_tanh,
+            "condition_delta_ablation": args.condition_delta_ablation,
+            "semantic_latent_ablation": args.semantic_latent_ablation,
+            "detail_context_ablation": args.detail_context_ablation,
+            "ablation_shuffle_seed": args.ablation_shuffle_seed,
             "payload_policy": (
                 "analysis only; predicted condition is deterministic from decoded CoSER tensors, fixed adapter weights, "
                 "and fixed CoD-Lite weights, so no image-specific side information is introduced"

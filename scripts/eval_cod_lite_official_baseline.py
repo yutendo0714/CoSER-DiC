@@ -33,6 +33,7 @@ def prepare_input_from_manifest(manifest: Path, input_dir: Path, limit: int) -> 
 def run_official_cli(
     *,
     repo: Path,
+    module: str,
     checkpoint: Path,
     config: Path,
     mode: str,
@@ -45,7 +46,7 @@ def run_official_cli(
     cmd = [
         sys.executable,
         "-m",
-        "finetuned_one_step_codec.inference",
+        module,
         mode,
         "--ckpt",
         str(checkpoint.resolve()),
@@ -117,6 +118,8 @@ def evaluate_reconstructions(
     device: torch.device,
     fid_patch_size: int,
     fid_patch_num: int,
+    codec_name: str,
+    header_bytes: int,
 ) -> tuple[dict[str, float | int | str], list[dict[str, float | int | str]]]:
     perceptual = PerceptualMetricBundle().to(device)
     fid = FrechetInceptionDistance().to(device)
@@ -130,7 +133,7 @@ def evaluate_reconstructions(
         reconstruction = TF.to_tensor(Image.open(reconstruction_path).convert("RGB")).unsqueeze(0).to(device)
         _, _, h, w = reference.shape
         cod_file_bytes = cod_path.stat().st_size
-        cod_payload_bytes = max(0, cod_file_bytes - 4)
+        cod_payload_bytes = max(0, cod_file_bytes - header_bytes)
         perceptual_result = perceptual(reference, reconstruction)
         patch_count = update_patch_fid(
             fid,
@@ -168,7 +171,10 @@ def evaluate_reconstructions(
         "fid": float(fid.compute().item()) if rows and fid_patch_size > 0 else float("nan"),
         "fid_patch_size": fid_patch_size,
         "fid_patch_num": fid_patch_num,
-        "payload_policy": "CoD-Lite .cod size minus 4-byte width/height header; fixed model/codebook weights excluded.",
+        "payload_policy": (
+            f"{codec_name} .cod size minus {header_bytes}-byte width/height header; "
+            "fixed model/codebook weights excluded."
+        ),
     }
     return summary, rows
 
@@ -202,6 +208,10 @@ def main() -> None:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--config", required=True)
     parser.add_argument("--cod-lite-repo", default="external/repos/GenCodec/CoD_Lite")
+    parser.add_argument("--official-repo", default="", help="Overrides --cod-lite-repo for non-CoD-Lite GenCodec CLIs.")
+    parser.add_argument("--official-module", default="finetuned_one_step_codec.inference")
+    parser.add_argument("--codec-name", default="CoD-Lite")
+    parser.add_argument("--header-bytes", type=int, default=4)
     parser.add_argument("--input-dir", default="")
     parser.add_argument("--manifest", default="")
     parser.add_argument("--limit", type=int, default=0)
@@ -216,6 +226,7 @@ def main() -> None:
         raise RuntimeError("CUDA is not visible; stop baseline evaluation until the container is restarted.")
 
     out_dir = Path(args.output_dir) / args.run_name
+    official_repo = Path(args.official_repo or args.cod_lite_repo)
     input_dir = Path(args.input_dir) if args.input_dir else out_dir / "input"
     if args.manifest:
         if input_dir.exists() and not any(input_dir.iterdir()):
@@ -229,7 +240,8 @@ def main() -> None:
     reconstruction_dir = out_dir / "reconstructions"
     if not args.skip_codec:
         run_official_cli(
-            repo=Path(args.cod_lite_repo),
+            repo=official_repo,
+            module=args.official_module,
             checkpoint=Path(args.checkpoint),
             config=Path(args.config),
             mode="compress",
@@ -237,7 +249,8 @@ def main() -> None:
             output_dir=bitstream_dir,
         )
         run_official_cli(
-            repo=Path(args.cod_lite_repo),
+            repo=official_repo,
+            module=args.official_module,
             checkpoint=Path(args.checkpoint),
             config=Path(args.config),
             mode="decompress",
@@ -252,6 +265,8 @@ def main() -> None:
         device=torch.device("cuda"),
         fid_patch_size=args.fid_patch_size,
         fid_patch_num=args.fid_patch_num,
+        codec_name=args.codec_name,
+        header_bytes=args.header_bytes,
     )
     summary.update(
         {
@@ -260,6 +275,10 @@ def main() -> None:
             "input_dir": str(input_dir),
             "reconstruction_dir": str(reconstruction_dir),
             "bitstream_dir": str(bitstream_dir),
+            "official_repo": str(official_repo),
+            "official_module": args.official_module,
+            "codec_name": args.codec_name,
+            "header_bytes": args.header_bytes,
             "main_bpp_metric": "actual_payload_bpp_mean",
         }
     )

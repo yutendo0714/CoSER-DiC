@@ -17,6 +17,8 @@ from coserdic.models import (
     CoDLiteOneStepBackboneConfig,
     CoSERToCoDLiteAlphaGate,
     CoSERToCoDLiteAlphaGateConfig,
+    apply_lora_adapters_from_config,
+    load_named_parameter_state,
 )
 from coserdic.utils import seed_everything
 from coserdic.utils.wandb_utils import init_wandb
@@ -89,6 +91,9 @@ def main() -> None:
     adapter_payload = torch.load(args.adapter_checkpoint, map_location="cpu", weights_only=False)
     backbone_cfg = CoDLiteOneStepBackboneConfig(**adapter_payload["backbone_config"])
     backbone = CoDLiteOneStepBackbone.load(backbone_cfg, device=device)
+    apply_lora_adapters_from_config(backbone.net, adapter_payload.get("backbone_lora_config", {}))
+    if adapter_payload.get("backbone_trainable_state"):
+        load_named_parameter_state(backbone.net, adapter_payload["backbone_trainable_state"], strict=True)
     backbone.eval()
     adapter = build_adapter_from_payload(adapter_payload).to(device)
     adapter.load_state_dict(adapter_payload["model"])

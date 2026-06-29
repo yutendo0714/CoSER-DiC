@@ -1,0 +1,44 @@
+{
+  "name": "official_cod_lite_kodak512",
+  "dataset": "Kodak512",
+  "source": "docs/research/baselines/cod_lite_official_baseline_20260628.md",
+  "bpp_policy": "actual_payload_bpp from official CoD-Lite .cod payload size, excluding the 4-byte width/height header; fixed model/codebook weights excluded",
+  "points": [
+    {
+      "bpp": 0.00390625,
+      "actual_payload_bpp": 0.00390625,
+      "psnr": 19.0304,
+      "ms_ssim": 0.57,
+      "lpips": 0.339,
+      "dists": 0.2089,
+      "fid": 51.219
+    },
+    {
+      "bpp": 0.0078125,
+      "actual_payload_bpp": 0.0078125,
+      "psnr": 19.7975,
+      "ms_ssim": 0.6283,
+      "lpips": 0.2807,
+      "dists": 0.1733,
+      "fid": 44.6564
+    },
+    {
+      "bpp": 0.015625,
+      "actual_payload_bpp": 0.015625,
+      "psnr": 20.7667,
+      "ms_ssim": 0.709,
+      "lpips": 0.2259,
+      "dists": 0.1402,
+      "fid": 38.4785
+    },
+    {
+      "bpp": 0.03125,
+      "actual_payload_bpp": 0.03125,
+      "psnr": 21.9853,
+      "ms_ssim": 0.7811,
+      "lpips": 0.1614,
+      "dists": 0.112,
+      "fid": 31.8072
+    }
+  ]
+}

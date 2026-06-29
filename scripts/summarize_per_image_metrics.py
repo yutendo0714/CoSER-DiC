@@ -25,6 +25,20 @@ DEFAULT_METRICS = (
     "semantic_only_dists",
     "stage3_dists",
     "stage3_dists_delta_vs_semantic_only",
+    "stage4_psnr",
+    "stage4_psnr_delta_vs_stage3",
+    "stage4_ms_ssim",
+    "stage4_ms_ssim_delta_vs_stage3",
+    "stage4_lpips_alex",
+    "stage4_lpips_alex_delta_vs_stage3",
+    "stage4_dists",
+    "stage4_dists_delta_vs_stage3",
+    "stage4_l1",
+    "stage4_l1_delta_vs_stage3",
+    "condition_l1",
+    "base_condition_l1",
+    "condition_l1_delta_vs_base",
+    "condition_gate_mean",
     "semantic_topk_hit_rate",
     "residual_grid_abs_mean",
     "residual_grid_std",
@@ -44,7 +58,9 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
             continue
         row = json.loads(line)
         if "path" not in row:
-            raise ValueError(f"{path}:{line_number} has no path")
+            if "source_path" not in row:
+                raise ValueError(f"{path}:{line_number} has no path or source_path")
+            row["path"] = row["source_path"]
         rows.append(row)
     return rows
 

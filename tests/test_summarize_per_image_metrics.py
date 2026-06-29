@@ -49,6 +49,16 @@ def test_summarize_rows_ignores_missing_metrics(tmp_path) -> None:
     assert "stage3_lpips_alex" not in summary
 
 
+def test_read_jsonl_accepts_stage4_source_path(tmp_path) -> None:
+    path = tmp_path / "metrics.jsonl"
+    path.write_text(json.dumps({"source_path": "/dpl/kodak/kodim01.png", "stage4_lpips_alex": 0.4}) + "\n")
+
+    rows = read_jsonl(path)
+
+    assert rows[0]["path"] == "/dpl/kodak/kodim01.png"
+    assert rows[0]["source_path"] == "/dpl/kodak/kodim01.png"
+
+
 def test_summarize_rows_marks_boolean_metrics() -> None:
     rows = [
         {"path": "/dpl/kodak/kodim01.png", "semantic_token_roundtrip": True},

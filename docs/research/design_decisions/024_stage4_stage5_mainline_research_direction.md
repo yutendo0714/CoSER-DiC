@@ -287,9 +287,12 @@ stat/spectrum matching as part of the curriculum, but it does not remove the
 need for learned deterministic gating or larger training data.
 ```
 
-## Priority 3: Deterministic Content Gate
+## Priority 3: Deterministic Condition-Space Gate
 
-A learned gate should replace fixed alpha diagnostics.
+A learned RGB output gate is still a post-hoc output manipulation and must not
+be promoted as the method. The mainline gate should operate in condition space
+or another decoder-conditioning space before the pretrained diffusion backbone
+produces the image.
 
 Inputs:
 
@@ -306,8 +309,8 @@ base condition quality proxy
 Outputs:
 
 ```text
-global alpha
-spatial alpha map
+condition-space scalar gate
+condition-space spatial gate
 condition-space channel/spatial gate
 ```
 
@@ -318,15 +321,17 @@ gate/control map is transmitted, its bits must be counted in
 Promotion:
 
 ```text
-beat fixed alpha0.25/0.30
+no RGB output blend
+beat Stage 3 on full552 at unchanged actual_payload_bpp
 no hidden reference leakage
 no split-specific regression across Kodak24 / CLIC2020 test428 / DIV2K val100
 ```
 
-The oracle adaptive-alpha headroom is useful but limited. Gate is a stabilizer;
-large gains still require better condition recovery and better detail signals.
+The oracle adaptive-alpha headroom remains a diagnostic for how much RGB
+blending can hide fidelity loss. It should not define the method. Large gains
+still require better condition recovery and better detail signals.
 
-Current learned-gate probe:
+RGB output-gate diagnostic:
 
 ```text
 adapter:
@@ -373,12 +378,50 @@ learned gate:
 Interpretation:
 
 ```text
-the gate path is valid and should replace further fixed-alpha hand tuning as
-the main stabilization mechanism
-the current gate is a Stage-4 internal mechanism, not a Stage-5 external
-baseline win
-next gate training should use larger train-cache data and stronger
-content-dependent supervision/regularization
+the RGB output-gate path is useful as a diagnostic and is better than fixed
+alpha hand tuning, but it remains post-hoc output blending
+do not promote it as the CoSER-DiC method
+```
+
+Condition-space gate mainline probe:
+
+```text
+decision:
+  025_stage4_no_posthoc_rgb_mainline_condition_gate.md
+
+model:
+  CoSERToCoDLiteConditionGate
+
+train:
+  20260628_stage4_cod_lite_condition_gate_fidelity_probe300_b1ga2
+
+eval:
+  20260628_stage4_cod_lite_condition_gate_fidelity_probe300_b1ga2_full552_eval
+```
+
+Full552 result at unchanged actual_payload_bpp=0.013999, with no RGB output
+blend:
+
+```text
+Stage 3:
+  PSNR / MS-SSIM: 21.9951 / 0.7348
+  LPIPS / DISTS: 0.5758 / 0.3536
+
+condition gate:
+  condition_gate_mean: 0.4327
+  PSNR / MS-SSIM:     21.3169 / 0.7161
+  LPIPS / DISTS:      0.5255 / 0.3437
+```
+
+Interpretation:
+
+```text
+condition-space gating is the right mechanism class but the current probe is
+not faithful enough
+this exposes the real Stage 4 bottleneck: CoD-Lite condition control, not RGB
+postprocessing
+next work should train the adapter and condition gate jointly, add
+diffusion-friendly detail control, and scale the non-eval train cache
 ```
 
 Implementation note:
@@ -442,6 +485,32 @@ base_condition only
 
 Promotion requires decoded semantic/detail features to matter. If removing or
 shuffling them does not hurt, CoSER is not using its own bitstream meaningfully.
+
+Current ablation status:
+
+```text
+decision:
+  026_stage4_coser_feature_ablation_and_guarded_adapter.md
+
+full552 condition stats:
+  normal pred_to_target_l1:        0.416470
+  semantic-latent zero l1:        0.429832
+  detail-context zero l1:         0.417512
+
+first64 image eval with condition-space gate:
+  normal LPIPS / DISTS:           0.4969 / 0.3400
+  semantic-latent zero:           0.5172 / 0.3521
+  detail-context zero:            0.4986 / 0.3410
+```
+
+Interpretation:
+
+```text
+semantic latent is already a real Stage 4 control signal
+current detail context is not yet a strong diffusion-control signal
+next architecture work should add a Stage4-aware detail control projection
+from the same transmitted detail payload
+```
 
 ## Priority 6: Scale Training Correctly
 
