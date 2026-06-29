@@ -215,6 +215,39 @@ def test_grouped_condition_affine_basis_control_codes_residual_after_affine() ->
     assert after < before_basis * 0.5
 
 
+def test_grouped_condition_affine_basis_control_can_code_base_condition_residual() -> None:
+    base = torch.zeros(1, 4, 4, 4)
+    coarse = torch.full((1, 1, 4, 4), 0.05, dtype=torch.float32)
+    spatial2 = torch.tensor([[-0.05, 0.05], [0.05, -0.05]], dtype=torch.float32)
+    spatial = spatial2.repeat_interleave(2, dim=0).repeat_interleave(2, dim=1).unsqueeze(0).unsqueeze(0)
+    target = base + coarse + spatial
+    basis_pattern = torch.stack([spatial2, spatial2], dim=0)
+    basis = (basis_pattern / basis_pattern.flatten().norm()).unsqueeze(0)
+    basis_payload = {"basis": basis, "mean": None, "groups": 2, "grid_size": 2}
+
+    before = torch.mean(torch.abs(base - target)).item()
+    correction, payload_bytes, control_abs = grouped_condition_affine_basis_control(
+        base,
+        base,
+        target,
+        affine_groups=2,
+        affine_grid_size=1,
+        gain_codec=UniformControlGridCode(bits=12, value_range=1.0),
+        bias_codec=UniformControlGridCode(bits=12, value_range=0.5),
+        basis_payload=basis_payload,
+        components=1,
+        candidate_components=1,
+        selection="prefix",
+        basis_codec=UniformControlGridCode(bits=12, value_range=0.5),
+        scale=1.0,
+    )
+    after = torch.mean(torch.abs((base + correction) - target)).item()
+
+    assert payload_bytes == [8]
+    assert control_abs.shape == (1,)
+    assert after < before * 0.5
+
+
 def test_basis_component_codebook_codec_loads_fixed_decoder_state() -> None:
     payload = {
         "coefficient_component_codebooks": {

@@ -150,6 +150,12 @@ def build_train_command(args: argparse.Namespace, *, preset: str, run_name: str)
         command.append("--init-nonstrict")
     if args.detail_control_branch:
         command.append("--detail-control-branch")
+    if args.detail_control_blocks:
+        command.extend(["--detail-control-blocks", str(args.detail_control_blocks)])
+    if args.detail_control_condition_fusion:
+        command.append("--detail-control-condition-fusion")
+    if args.detail_highfreq_context_branch:
+        command.append("--detail-highfreq-context-branch")
     if args.detail_film_modulation:
         command.append("--detail-film-modulation")
     if args.condition_residual_tanh:
@@ -221,6 +227,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-fusion-blocks", type=int, default=4)
     parser.add_argument("--detail-control-branch", action="store_true", default=True)
     parser.add_argument("--no-detail-control-branch", action="store_false", dest="detail_control_branch")
+    parser.add_argument("--detail-control-blocks", type=int, default=0)
+    parser.add_argument("--detail-control-condition-fusion", action="store_true")
+    parser.add_argument("--detail-highfreq-context-branch", action="store_true")
     parser.add_argument("--detail-film-modulation", action="store_true", default=True)
     parser.add_argument("--no-detail-film-modulation", action="store_false", dest="detail_film_modulation")
     parser.add_argument("--condition-l1-weight", type=float, default=0.35)

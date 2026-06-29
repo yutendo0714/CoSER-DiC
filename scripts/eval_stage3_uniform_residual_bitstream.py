@@ -203,6 +203,24 @@ def safe_image_name(index: int, path: str) -> str:
     return f"image{index:05d}_{safe_stem}.png"
 
 
+def residual_quantizer_name(
+    residual_code: (
+        UniformResidualGridCode
+        | StaticResidualGridHuffmanCode
+        | StaticResidualGridHybridHuffmanCode
+        | StaticResidualGridPositionHuffmanCode
+        | StaticResidualGridSemanticPositionLeftContextHuffmanCode
+        | StaticResidualGridSemanticPositionHuffmanCode
+    ),
+) -> str:
+    if isinstance(residual_code, StaticResidualGridHybridHuffmanCode):
+        return str(residual_code.position_code.quantizer.quantizer)
+    quantizer = getattr(residual_code, "quantizer", "uniform")
+    if isinstance(quantizer, str):
+        return quantizer
+    return str(getattr(quantizer, "quantizer", "uniform"))
+
+
 def summarize_residual_code(
     residual_code: (
         UniformResidualGridCode
@@ -219,6 +237,7 @@ def summarize_residual_code(
             "version": 0,
             "bits": int(residual_code.bits),
             "value_range": float(residual_code.value_range),
+            "quantizer": residual_quantizer_name(residual_code),
             "payload_codec": "hybrid_huffman",
             "position_code": summarize_residual_code(residual_code.position_code),
             "semantic_position_code": summarize_residual_code(residual_code.semantic_position_code),
@@ -235,6 +254,7 @@ def summarize_residual_code(
             "version": payload["version"],
             "bits": payload["bits"],
             "value_range": payload["value_range"],
+            "quantizer": payload.get("quantizer", residual_quantizer_name(residual_code)),
             "payload_codec": payload["payload_codec"],
             "detail_shape": payload["detail_shape"],
             "semantic_shape": payload["semantic_shape"],
@@ -263,6 +283,7 @@ def summarize_residual_code(
             "version": payload["version"],
             "bits": payload["bits"],
             "value_range": payload["value_range"],
+            "quantizer": payload.get("quantizer", residual_quantizer_name(residual_code)),
             "payload_codec": payload["payload_codec"],
             "detail_shape": payload["detail_shape"],
             "semantic_shape": payload["semantic_shape"],
@@ -291,6 +312,7 @@ def summarize_residual_code(
         "version": payload["version"],
         "bits": payload["bits"],
         "value_range": payload["value_range"],
+        "quantizer": payload.get("quantizer", residual_quantizer_name(residual_code)),
         "payload_codec": payload["payload_codec"],
         "detail_shape": payload["detail_shape"],
         "num_position_codes": len(payload.get("position_code_lengths", [])),
@@ -328,6 +350,7 @@ def main() -> None:
     parser.add_argument("--detail-downsample-factor", type=int, default=32)
     parser.add_argument("--detail-bits", type=int, default=6)
     parser.add_argument("--detail-range", type=float, default=0.5)
+    parser.add_argument("--detail-quantizer", choices=["uniform", "zero_centered"], default="uniform")
     parser.add_argument("--detail-gain", type=float, default=1.0)
     parser.add_argument("--decoder-postprocess", choices=DECODER_POSTPROCESS_MODES, default="none")
     parser.add_argument("--decoder-postprocess-strength", type=float, default=0.0)
@@ -425,8 +448,15 @@ def main() -> None:
             raise ValueError("--detail-bits does not match residual Huffman prior")
         if abs(float(args.detail_range) - residual_code.value_range) > 1.0e-9:
             raise ValueError("--detail-range does not match residual Huffman prior")
+        if str(args.detail_quantizer) != residual_quantizer_name(residual_code):
+            raise ValueError("--detail-quantizer does not match residual Huffman prior")
     else:
-        residual_code = UniformResidualGridCode(bits=args.detail_bits, value_range=args.detail_range, codec=args.detail_codec)
+        residual_code = UniformResidualGridCode(
+            bits=args.detail_bits,
+            value_range=args.detail_range,
+            codec=args.detail_codec,
+            quantizer=args.detail_quantizer,
+        )
 
     if args.crop_size % args.detail_downsample_factor != 0:
         raise ValueError("--crop-size must be divisible by --detail-downsample-factor")
@@ -554,6 +584,8 @@ def main() -> None:
     entropy_model_version = (
         f"s3urg-d{args.detail_downsample_factor}-b{args.detail_bits}-r{int(round(args.detail_range * 100)):03d}"
     )
+    if args.detail_quantizer != "uniform":
+        entropy_model_version += f"-q{args.detail_quantizer}"
     if abs(float(args.detail_gain) - 1.0) > 1.0e-9:
         entropy_model_version += f"-g{int(round(args.detail_gain * 1000)):04d}"
     if args.decoder_postprocess != "none":
@@ -882,6 +914,12 @@ def main() -> None:
                                 "semantic_latent": semantic_latent.detach().cpu().to(torch.bfloat16),
                                 "residual_grid_hat": residual_grid_hat.detach().cpu().to(torch.bfloat16),
                                 "detail_codes": decoded_detail_codes.detach().cpu().to(torch.int16),
+                                "detail_bits": int(args.detail_bits),
+                                "detail_levels": int(residual_code.levels),
+                                "detail_range": float(args.detail_range),
+                                "detail_quantizer": str(args.detail_quantizer),
+                                "detail_downsample_factor": int(args.detail_downsample_factor),
+                                "detail_codec": str(args.detail_codec),
                                 "semantic_shape": tuple(int(v) for v in decoded_indices.shape),
                                 "semantic_latent_shape": tuple(int(v) for v in semantic_latent.shape),
                                 "detail_shape": tuple(int(v) for v in decoded_detail_codes.shape),
@@ -941,6 +979,7 @@ def main() -> None:
         "detail_shape": [3, int(detail_hw), int(detail_hw)],
         "detail_bits": int(args.detail_bits),
         "detail_range": float(args.detail_range),
+        "detail_quantizer": str(args.detail_quantizer),
         "detail_gain": float(args.detail_gain),
         "decoder_postprocess": args.decoder_postprocess,
         "decoder_postprocess_strength": float(args.decoder_postprocess_strength),

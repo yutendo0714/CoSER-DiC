@@ -27,7 +27,9 @@ from coserdic.entropy import (
     UniformControlGridCode,
     VectorCodebookControlCode,
     build_control_grid_code,
+    decode_semantic_tokens,
     dct2_orthonormal,
+    encode_semantic_tokens,
     idct2_orthonormal,
     project_onto_control_basis,
     reconstruct_from_control_basis,
@@ -56,6 +58,70 @@ from coserdic.utils.wandb_utils import init_wandb
 
 def detail_context_channels(mode: str) -> int:
     return {"none": 0, "residual_grid": 3, "residual_grid_codes": 6}[mode]
+
+
+def gencodec512_split_name(source_path: str) -> str:
+    """Best-effort split label for the strict GenCodec-style full552 protocol."""
+
+    text = str(source_path).lower()
+    if "/kodak/" in text or text.endswith("kodak"):
+        return "kodak24"
+    if "clic" in text:
+        return "clic2020_test428"
+    if "div2k" in text:
+        return "div2k_val100"
+    return "unknown"
+
+
+def summarize_per_image_rows(rows: list[dict[str, object]]) -> dict[str, float]:
+    if not rows:
+        return {"count": 0}
+    keys = (
+        "actual_payload_bpp",
+        "paper_bpp",
+        "stage3_actual_payload_bpp",
+        "control_payload_bpp",
+        "control_payload_bytes",
+        "stage3_psnr",
+        "stage4_psnr",
+        "stage4_psnr_delta_vs_stage3",
+        "stage3_ms_ssim",
+        "stage4_ms_ssim",
+        "stage4_ms_ssim_delta_vs_stage3",
+        "stage3_lpips_alex",
+        "stage4_lpips_alex",
+        "stage4_lpips_alex_delta_vs_stage3",
+        "stage3_dists",
+        "stage4_dists",
+        "stage4_dists_delta_vs_stage3",
+        "condition_l1",
+        "pre_control_condition_l1",
+        "control_condition_l1_delta",
+        "ungated_condition_l1",
+        "base_condition_l1",
+        "condition_l1_delta_vs_base",
+        "stage4_alpha",
+        "condition_gate_mean",
+        "post_control_condition_gate_mean",
+    )
+    summary: dict[str, float] = {"count": float(len(rows))}
+    for key in keys:
+        values = [float(row[key]) for row in rows if key in row]
+        if values:
+            summary[f"{key}_mean"] = mean(values)
+    summary["stage4_psnr_win_rate"] = mean(
+        [1.0 if float(row["stage4_psnr_delta_vs_stage3"]) > 0 else 0.0 for row in rows]
+    )
+    summary["stage4_ms_ssim_win_rate"] = mean(
+        [1.0 if float(row["stage4_ms_ssim_delta_vs_stage3"]) > 0 else 0.0 for row in rows]
+    )
+    summary["stage4_lpips_win_rate"] = mean(
+        [1.0 if float(row["stage4_lpips_alex_delta_vs_stage3"]) < 0 else 0.0 for row in rows]
+    )
+    summary["stage4_dists_win_rate"] = mean(
+        [1.0 if float(row["stage4_dists_delta_vs_stage3"]) < 0 else 0.0 for row in rows]
+    )
+    return summary
 
 
 class Stage4ManifestDataset(Dataset):
@@ -203,7 +269,24 @@ def _load_detail_context(cache: dict[str, object], mode: str) -> torch.Tensor:
         detail_codes = cache["detail_codes"].float()
         if detail_codes.ndim == 4 and detail_codes.shape[0] == 1:
             detail_codes = detail_codes.squeeze(0)
-        detail_codes = detail_codes / 15.0 * 2.0 - 1.0
+        detail_bits = int(cache.get("detail_bits", 4))
+        detail_levels = int(cache.get("detail_levels", 1 << detail_bits))
+        if detail_levels <= 1:
+            raise ValueError(f"invalid detail_levels in decoder feature cache: {detail_levels}")
+        detail_quantizer = str(cache.get("detail_quantizer", "uniform"))
+        if detail_quantizer == "zero_centered":
+            zero_code = detail_levels // 2
+            positive_denominator = max(detail_levels - 1 - zero_code, 1)
+            signed = detail_codes - float(zero_code)
+            detail_codes = torch.where(
+                signed >= 0,
+                signed / float(positive_denominator),
+                signed / float(zero_code),
+            )
+        elif detail_quantizer == "uniform":
+            detail_codes = detail_codes / float(detail_levels - 1) * 2.0 - 1.0
+        else:
+            raise ValueError(f"unknown detail_quantizer in decoder feature cache: {detail_quantizer}")
         return torch.cat([residual_grid, detail_codes], dim=0)
     raise ValueError(f"unknown detail_context: {mode}")
 
@@ -1346,8 +1429,8 @@ def grouped_condition_basis_control(
             coeff_abs_values.append(selected_values.float().abs().mean())
         coeff_abs_mean = torch.stack(coeff_abs_values).to(device=condition_error.device)
     elif selection == "prefix_topk":
-        if huffman is not None or sparse_huffman is not None:
-            raise ValueError("prefix_topk basis selection currently supports fixed_bits only")
+        if (huffman is None) != (sparse_huffman is None):
+            raise ValueError("prefix_topk entropy coding requires both prefix and sparse Huffman priors")
         if candidate_components <= 0:
             raise ValueError("candidate_components must be positive for prefix_topk basis selection")
         if prefix_components <= 0:
@@ -1397,10 +1480,38 @@ def grouped_condition_basis_control(
                 raise TypeError("prefix-top-k selected value codec has an unsupported type")
             prefix_codes = prefix_value_codec.quantize(prefix_values)
             selected_codes = selected_value_codec.quantize(selected_values)
-            compact_payload = prefix_topk_code.encode_compact(prefix_codes, local_indices, selected_codes)
-            decoded_prefix_codes, decoded_local_indices, decoded_selected_codes = prefix_topk_code.decode_compact(
-                compact_payload
-            )
+            if huffman is None or sparse_huffman is None:
+                compact_payload = prefix_topk_code.encode_compact(prefix_codes, local_indices, selected_codes)
+                decoded_prefix_codes, decoded_local_indices, decoded_selected_codes = prefix_topk_code.decode_compact(
+                    compact_payload
+                )
+                payload_len = len(compact_payload)
+            else:
+                if huffman.symbol_shape != (int(prefix_components),):
+                    raise ValueError("prefix_topk prefix Huffman symbol_shape must match prefix_components")
+                if int(huffman.codebook_size) != int(prefix_value_codec.levels):
+                    raise ValueError("prefix_topk prefix Huffman codebook_size mismatch")
+                _, value_huffman = sparse_huffman
+                if value_huffman.symbol_shape != (int(components),):
+                    raise ValueError("prefix_topk value Huffman symbol_shape must match components")
+                if int(value_huffman.codebook_size) != int(selected_value_codec.levels):
+                    raise ValueError("prefix_topk value Huffman codebook_size mismatch")
+                prefix_payload = huffman.encode(prefix_codes)
+                decoded_prefix_codes = huffman.decode(prefix_payload, shape=(int(prefix_components),))
+                index_payload = encode_semantic_tokens(
+                    local_indices,
+                    codebook_size=int(prefix_topk_code.tail_components),
+                    codec="fixed_bits",
+                )
+                decoded_local_indices = decode_semantic_tokens(
+                    index_payload,
+                    shape=(int(components),),
+                    codebook_size=int(prefix_topk_code.tail_components),
+                    codec="fixed_bits",
+                )
+                value_payload = value_huffman.encode(selected_codes)
+                decoded_selected_codes = value_huffman.decode(value_payload, shape=(int(components),))
+                payload_len = len(prefix_payload) + len(index_payload) + len(value_payload)
             decoded_prefix_values = prefix_value_codec.dequantize(decoded_prefix_codes).to(
                 device=condition_error.device,
                 dtype=torch.float32,
@@ -1417,7 +1528,7 @@ def grouped_condition_basis_control(
                 decoded_selected_values,
             ).to(device=condition_error.device)
             decoded_items.append(decoded_full)
-            payload_bytes.append(len(compact_payload))
+            payload_bytes.append(payload_len)
             coeff_abs_values.append(torch.cat([prefix_values.float().abs(), selected_values.float().abs()]).mean())
         coeff_abs_mean = torch.stack(coeff_abs_values).to(device=condition_error.device)
     else:
@@ -1519,6 +1630,7 @@ def main() -> None:
             "condition_residual_affine_dct",
             "condition_residual_affine_grid",
             "condition_residual_affine_basis",
+            "condition_base_affine_basis",
             "condition_residual_hybrid_affine_dct_grid",
             "condition_residual_hybrid_affine_dct_grid_basis",
         ),
@@ -1541,6 +1653,11 @@ def main() -> None:
     parser.add_argument("--control-basis-range-floor", type=float, default=1.0e-6)
     parser.add_argument("--control-codec", choices=("fixed_bits", "huffman"), default="fixed_bits")
     parser.add_argument("--control-huffman-key", default="")
+    parser.add_argument(
+        "--control-prefix-huffman-key",
+        default="",
+        help="Prefix value Huffman prior key for selection=prefix_topk with --control-codec huffman.",
+    )
     parser.add_argument("--control-quantizer", choices=("uniform", "mu_law"), default="uniform")
     parser.add_argument("--control-mu", type=float, default=16.0)
     parser.add_argument("--control-bits", type=int, default=4)
@@ -1657,11 +1774,10 @@ def main() -> None:
         raise ValueError("--control-basis-candidate-components must be non-negative")
     if args.control_basis_prefix_components < 0:
         raise ValueError("--control-basis-prefix-components must be non-negative")
-    if args.control_basis_selection == "prefix_topk" and args.control_codec == "huffman":
-        raise ValueError("selection=prefix_topk currently supports fixed_bits only")
     if args.control_codec == "huffman" and args.counted_control_mode not in {
         "condition_residual_basis",
         "condition_residual_affine_basis",
+        "condition_base_affine_basis",
         "condition_residual_hybrid_affine_dct_grid_basis",
     }:
         raise ValueError("--control-codec huffman is currently supported only for basis control modes")
@@ -1734,6 +1850,7 @@ def main() -> None:
         "condition_residual_affine_dct",
         "condition_residual_affine_grid",
         "condition_residual_affine_basis",
+        "condition_base_affine_basis",
         "condition_residual_hybrid_affine_dct_grid",
         "condition_residual_hybrid_affine_dct_grid_basis",
     }:
@@ -1751,6 +1868,7 @@ def main() -> None:
     if args.counted_control_mode in {
         "condition_residual_basis",
         "condition_residual_affine_basis",
+        "condition_base_affine_basis",
         "condition_residual_hybrid_affine_dct_grid_basis",
     }:
         control_basis_payload = load_control_basis(args.control_basis, device=device)
@@ -1818,6 +1936,55 @@ def main() -> None:
                 if effective_control_basis_range_mode not in {"global", prior_basis_range_mode}:
                     raise ValueError("sparse Huffman prior basis_range_mode conflicts with --control-basis-range-mode")
                 effective_control_basis_range_mode = prior_basis_range_mode
+        elif args.control_codec == "huffman" and args.control_basis_selection == "prefix_topk":
+            (
+                prefix_huffman,
+                prefix_bits,
+                prefix_range,
+                prefix_quantizer,
+                prefix_mu,
+                prefix_huffman_key,
+                prefix_basis_range_mode,
+            ) = load_control_huffman_prior(
+                control_basis_payload,
+                key=args.control_prefix_huffman_key,
+                components=args.control_basis_prefix_components,
+            )
+            (
+                index_huffman,
+                value_huffman,
+                sparse_bits,
+                sparse_range,
+                sparse_quantizer,
+                sparse_mu,
+                sparse_huffman_key,
+                sparse_basis_range_mode,
+            ) = load_sparse_topk_control_huffman_prior(
+                control_basis_payload,
+                key=args.control_huffman_key,
+                candidate_components=effective_candidate_components,
+                components=args.control_basis_components,
+            )
+            if int(prefix_bits) != int(sparse_bits):
+                raise ValueError("prefix_topk prefix and sparse Huffman priors must use the same bit depth")
+            if str(prefix_quantizer) != str(sparse_quantizer):
+                raise ValueError("prefix_topk prefix and sparse Huffman priors must use the same quantizer")
+            if abs(float(prefix_range) - float(sparse_range)) > 1.0e-8:
+                raise ValueError("prefix_topk prefix and sparse Huffman priors must use the same value range")
+            if abs(float(prefix_mu) - float(sparse_mu)) > 1.0e-8:
+                raise ValueError("prefix_topk prefix and sparse Huffman priors must use the same mu")
+            for prior_basis_range_mode in (prefix_basis_range_mode, sparse_basis_range_mode):
+                if prior_basis_range_mode != "global":
+                    if effective_control_basis_range_mode not in {"global", prior_basis_range_mode}:
+                        raise ValueError("prefix_topk Huffman prior basis_range_mode conflicts with --control-basis-range-mode")
+                    effective_control_basis_range_mode = prior_basis_range_mode
+            control_huffman = prefix_huffman
+            control_sparse_huffman = (index_huffman, value_huffman)
+            effective_control_bits = int(sparse_bits)
+            effective_control_range = float(sparse_range)
+            effective_control_quantizer = str(sparse_quantizer)
+            effective_control_mu = float(sparse_mu)
+            effective_control_huffman_key = f"prefix:{prefix_huffman_key}|tail:{sparse_huffman_key}"
         elif args.control_codec == "huffman" and args.control_basis_selection == "vector":
             (
                 control_huffman,
@@ -2157,6 +2324,30 @@ def main() -> None:
                         grouped_condition_affine_basis_control(
                             base_cond.float(),
                             pred_cond.float(),
+                            target_cond.float(),
+                            affine_groups=effective_affine_groups,
+                            affine_grid_size=effective_affine_grid_size,
+                            gain_codec=affine_gain_codec,
+                            bias_codec=affine_bias_codec,
+                            basis_payload=control_basis_payload,
+                            components=args.control_basis_components,
+                            candidate_components=effective_candidate_components,
+                            selection=args.control_basis_selection,
+                            basis_codec=basis_control_codec,
+                            prefix_components=args.control_basis_prefix_components,
+                            huffman=control_huffman,
+                            sparse_huffman=control_sparse_huffman,
+                            scale=args.control_scale,
+                        )
+                    )
+                    pred_cond = pred_cond + control_correction.to(dtype=pred_cond.dtype)
+                elif args.counted_control_mode == "condition_base_affine_basis":
+                    if control_basis_payload is None:
+                        raise RuntimeError("control_basis_payload was not loaded")
+                    control_correction, control_payload_bytes, control_grid_abs_mean = (
+                        grouped_condition_affine_basis_control(
+                            base_cond.float(),
+                            base_cond.float(),
                             target_cond.float(),
                             affine_groups=effective_affine_groups,
                             affine_grid_size=effective_affine_grid_size,
@@ -2536,6 +2727,7 @@ def main() -> None:
                 row = {
                     "index": int(batch["index"][item]),
                     "source_path": str(batch["source_path"][item]),
+                    "split": gencodec512_split_name(str(batch["source_path"][item])),
                     "actual_payload_bpp": actual_payload_bpp,
                     "paper_bpp": actual_payload_bpp,
                     "stage3_actual_payload_bpp": stage3_payload_bpp,
@@ -2613,12 +2805,19 @@ def main() -> None:
 
     summary = {f"{key}_mean": mean(values) for key, values in metrics.items()}
     hybrid_mode_counts: dict[str, int] = {}
+    split_rows: dict[str, list[dict[str, object]]] = {}
     for row in per_image:
         mode = str(row.get("control_hybrid_mode", "none"))
         hybrid_mode_counts[mode] = hybrid_mode_counts.get(mode, 0) + 1
+        split = str(row.get("split", gencodec512_split_name(str(row.get("source_path", "")))))
+        split_rows.setdefault(split, []).append(row)
     summary.update(
         {
             "count": len(per_image),
+            "split_metrics": {
+                split: summarize_per_image_rows(rows)
+                for split, rows in sorted(split_rows.items())
+            },
             "stage4_psnr_win_rate": mean([1.0 if r["stage4_psnr_delta_vs_stage3"] > 0 else 0.0 for r in per_image]),
             "stage4_ms_ssim_win_rate": mean(
                 [1.0 if r["stage4_ms_ssim_delta_vs_stage3"] > 0 else 0.0 for r in per_image]

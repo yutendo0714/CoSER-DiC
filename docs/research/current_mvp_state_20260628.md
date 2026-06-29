@@ -3,7 +3,582 @@
 Date: 2026-06-28 JST  
 Status: Active navigation memo for Stage 4 / Stage 5 work
 
-## 2026-06-29 Active Update
+## 2026-06-30 Zero-Centered Detail Quantizer Update
+
+Added a zero-centered residual-grid quantizer for Stage 3 detail payloads. The
+old 2-bit uniform residual path could not represent zero residual with an exact
+zero code, which was a bad match for sparse/near-zero residual grids and made
+low-bit detail-allocation probes look worse than they should.
+
+```text
+d16 b2 zero-centered Stage3, limit64:
+  bpp 0.021151
+  semantic/detail bpp 0.008796 / 0.012354
+  PSNR 22.2556 / MS-SSIM 0.7588
+  LPIPS 0.5496 / DISTS 0.3464
+  detail entropy 0.2697 bits
+
+d16 b2 uniform Stage3, limit64:
+  bpp 0.024131
+  PSNR 20.8772 / MS-SSIM 0.7002
+  LPIPS 0.6952 / DISTS 0.3708
+  detail entropy 1.0038 bits
+
+d16 b3 uniform Stage3, limit64:
+  bpp 0.025829
+  PSNR 22.4673 / MS-SSIM 0.7642
+  LPIPS 0.5945 / DISTS 0.3508
+  detail entropy 1.3219 bits
+```
+
+Stage 4 / Stage 5 limit64 screen:
+
+```text
+d32 detail-control fusion:
+  bpp 0.014632
+  PSNR 21.6464 / MS-SSIM 0.7365
+  LPIPS 0.3512 / DISTS 0.2577
+  condition_l1 0.4011
+
+d16 b2 zero-centered + dedicated FT400 adapter:
+  bpp 0.022120
+  PSNR 21.5267 / MS-SSIM 0.7361
+  LPIPS 0.3523 / DISTS 0.2543
+  condition_l1 0.4064
+
+d16 b3 dedicated FT400 adapter:
+  bpp 0.026810
+  PSNR 21.7973 / MS-SSIM 0.7439
+  LPIPS 0.3499 / DISTS 0.2499
+  condition_l1 0.4090
+```
+
+Decision:
+
+```text
+Keep zero-centered residual quantization as mainline codec infrastructure.
+
+Do not promote the d16 b2 zero-centered checkpoint as a Stage 5 result.
+It fixes a real detail-payload design problem and makes low-bit residual coding
+much stronger, but the Stage 4 result spends more actual payload bpp than the
+d32 anchor and does not yet dominate the curve.
+
+Next mainline work should extend this idea to d32 / dead-zone quantization,
+semantic-conditioned residual entropy modeling, and Stage4-aware detail heads,
+not to more posthoc RGB or adapter-only tweaks.
+```
+
+See:
+
+```text
+docs/research/design_decisions/073_stage5_zero_centered_detail_quantizer_probe_20260630.md
+```
+
+## 2026-06-29 Detail High-Frequency Context Update
+
+Added and screened an explicit high-frequency detail-context branch for the
+Stage 5 CoD-Lite pyramid adapter. It uses only decoded Stage 3 detail context
+and therefore does not add bits.
+
+```text
+high-frequency detail context, limit64:
+  bpp 0.014634
+  PSNR 21.6391 / MS-SSIM 0.7357
+  LPIPS 0.3516 / DISTS 0.2577
+  condition_l1 0.4012
+
+plain detail-control fusion, limit64:
+  bpp 0.014632
+  PSNR 21.6464 / MS-SSIM 0.7365
+  LPIPS 0.3512 / DISTS 0.2577
+  condition_l1 0.4011
+```
+
+Decision:
+
+```text
+Do not promote the high-frequency detail-context branch.
+
+It improves the training condition target, but does not beat the simpler
+detail-control fusion branch on final-image limit64 metrics. This reinforces
+the current diagnosis: adapter-side routing and loss tweaks are not enough.
+
+Next mainline work should change the information available to the diffusion
+backbone through Stage4-aware detail representation, semantic/detail allocation,
+or learned detail entropy modeling.
+```
+
+See:
+
+```text
+docs/research/design_decisions/072_stage5_detail_highfreq_context_probe_20260629.md
+```
+
+## 2026-06-29 Detail-Control Fusion Update
+
+Added a condition-aware detail-control branch to the Stage 5 CoD-Lite pyramid
+adapter. It uses the existing decoded detail payload, so it does not add bits.
+
+```text
+balanced detail-control fusion:
+  full552 bpp 0.014977
+  PSNR 21.2634 / MS-SSIM 0.7137
+  LPIPS 0.3649 / DISTS 0.2597
+  condition_l1 0.4014
+
+DISTS-heavy detail-control fusion:
+  full552 bpp 0.014978
+  PSNR 21.3102 / MS-SSIM 0.7158
+  LPIPS 0.3682 / DISTS 0.2630
+  condition_l1 0.4014
+```
+
+Decision:
+
+```text
+Keep the balanced detail-control fusion implementation as useful mainline
+infrastructure, but do not promote either run as a Stage 5 result.
+
+The new branch gives small fidelity / LPIPS improvements at the same actual
+payload bpp, but DISTS remains worse than the old k16 anchor. DISTS-heavy
+loss reweighting improves PSNR/MS-SSIM further while worsening LPIPS/DISTS.
+
+Next work should change the transmitted/decoded detail representation and
+Stage4-aware detail allocation, not keep tuning loss weights around the same
+detail payload.
+```
+
+See:
+
+```text
+docs/research/design_decisions/071_stage5_detailcontrol_fusion_probe_20260629.md
+```
+
+## 2026-06-29 Fixed-Target / Base-Fixed / Selector Update
+
+New Stage 5 probes after the control-aware FT400 result:
+
+```text
+base-fixed condition control:
+  implemented condition_base_affine_basis for train/eval
+  limit64 complement FT500:
+    bpp 0.015111
+    PSNR 21.7000 / MS-SSIM 0.7400
+    LPIPS 0.3818 / DISTS 0.2727
+    control delta L1 -0.0056
+
+fixed-target control-aware FT600:
+  full552 bpp 0.014978
+  PSNR 21.2643 / MS-SSIM 0.7133
+  LPIPS 0.3649 / DISTS 0.2597
+  condition_l1 0.4014
+
+fixed-target DISTS FT500:
+  full552 bpp 0.014977
+  PSNR 21.2877 / MS-SSIM 0.7151
+  LPIPS 0.3651 / DISTS 0.2610
+  condition_l1 0.4017
+
+hybrid selector DISTS-RDO rate lambda 0.5:
+  limit64 bpp 0.014955
+  PSNR 21.5853 / MS-SSIM 0.7342
+  LPIPS 0.3538 / DISTS 0.2544
+  mode counts: affine_basis 45, affine 9, affine_dct 4, none 6
+```
+
+Decision:
+
+```text
+Do not promote these branches.
+
+Base-fixed control improves condition after complement training but pushes the
+output toward fidelity and away from LPIPS/DISTS. The corrected fixed-target
+training improves PSNR/MS-SSIM/LPIPS but not DISTS. Hybrid selector RDO gives
+only small metric-specific gains unless it spends far too many bits.
+
+The active mainline remains the CoD_Lite_bpp_0_0156 denoiser-all LoRA + k16
+sparse counted-control path. The next large-gain work should change the
+CoSER information flow: diffusion-friendly detail/control heads, Stage4-aware
+detail allocation, and better semantic/detail rate allocation. Do not spend
+more time on base-fixed, loss-only DISTS reweighting, or selector-only tuning
+until the detail/control representation improves.
+```
+
+See:
+
+```text
+docs/research/design_decisions/070_stage5_basefixed_fixedtarget_and_hybrid_selector_probe_20260629.md
+```
+
+## 2026-06-29 Prefix-TopK Entropy / Spatial Gate Update
+
+New Stage 5 probes after the LoRA-all k16 anchor:
+
+```text
+prefix16 + tail topk16 entropy control:
+  run 20260629_stage5_lora0156_all_lorabasis_prefix16topk16_huff_full552
+  bpp 0.015403
+  control_bpp 0.001404
+  PSNR 21.1966 / MS-SSIM 0.7117
+  LPIPS 0.3659 / DISTS 0.2572
+  condition_l1 0.4026
+
+k16 sparse control + spatial condition gate:
+  run 20260629_stage5_lora0156_all_k16_spatial_gate_tv_full552
+  bpp 0.014980
+  control_bpp 0.000981
+  PSNR 21.2206 / MS-SSIM 0.7127
+  LPIPS 0.3679 / DISTS 0.2592
+  condition_l1 0.4030
+  post_control_gate_mean 0.9555
+```
+
+Decision:
+
+```text
+Do not promote either as the primary Stage 5 result.
+
+prefix_topk entropy is useful codec infrastructure and nearly matches k32
+control at lower bpp, but the improvement over k16 is tiny.
+
+spatial gate is a legitimate condition-space gate, not RGB postprocessing, but
+it only lands between raw k16 and global-gated k16. It does not dominate both.
+
+The next mainline step is not more gate-only tuning. Train a stronger
+control-aware adapter/detail-control path that learns with counted control in
+the loop.
+```
+
+See:
+
+```text
+docs/research/design_decisions/068_stage5_prefix_topk_entropy_and_spatial_gate_probe_20260629.md
+```
+
+## 2026-06-29 Current Stage 5 Mainline Update
+
+The active Stage 5 continuation is now the `CoD_Lite_bpp_0_0156`
+denoiser-all LoRA branch plus efficient k16 counted condition-control.
+
+Best current no-extra-bit Stage 5 adapter/control state:
+
+```text
+run:
+  20260629_stage5_detailtarget_lora0156_denoiser_all_r4_balanced_ft900_full552_eval
+
+actual_payload_bpp:
+  0.013999
+
+metrics:
+  PSNR     21.2926
+  MS-SSIM   0.7149
+  LPIPS     0.3867
+  DISTS     0.2686
+  condition_l1 0.4113
+```
+
+Interpretation:
+
+```text
+This is a real no-extra-bit perceptual improvement over the previous Stage 4
+adapter anchor, with a small fidelity cost. Use it as the active Stage 5
+backbone-adapted continuation, not as an external-baseline win.
+```
+
+Most efficient current counted-control point:
+
+```text
+run:
+  20260629_stage5_lora0156_all_oldbasis_full552_affinebasis_k16
+
+actual_payload_bpp:
+  0.014978
+
+control_payload_bpp:
+  0.000978
+
+metrics:
+  PSNR     21.1966
+  MS-SSIM   0.7117
+  LPIPS     0.3665
+  DISTS     0.2575
+  condition_l1 0.4030
+```
+
+Current balanced Stage 5 operating point:
+
+```text
+run:
+  20260629_stage5_lora0156_all_k16_global_gate_perceptual_full552
+
+actual_payload_bpp:
+  0.014978
+
+control_payload_bpp:
+  0.000978
+
+metrics:
+  PSNR     21.2573
+  MS-SSIM   0.7142
+  LPIPS     0.3723
+  DISTS     0.2622
+  condition_l1 0.4037
+  post_control_gate_mean 0.9085
+```
+
+Interpretation:
+
+```text
+The learned global condition-space gate slightly dominates the fixed
+scale-0.5 diagnostic and gives a safer balanced point than full k16 control.
+It is useful, but the gate distribution is still narrow/high, so the next
+large gains should come from better adapter/control/detail representation,
+not gate-only sweeps.
+```
+
+Rejected branch:
+
+```text
+CoD_Lite_bpp_0_0078 denoiser-all LoRA:
+  run 20260629_stage5_detailtarget_lora0078_denoiser_all_r4_balanced_ft700_full552_eval
+  bpp 0.013999
+  PSNR 20.8498 / MS-SSIM 0.6885 / LPIPS 0.4001 / DISTS 0.2785
+  condition_l1 0.4619
+```
+
+Interpretation:
+
+```text
+The lower-rate CoD-Lite backbone does not help the current CoSER condition
+path. Continue from 0.0156; do not spend more on 0.0078 unless the condition
+adapter/control representation changes substantially.
+```
+
+See:
+
+```text
+docs/research/design_decisions/067_stage5_lora_all_control_gate_rate_probe_20260629.md
+```
+
+## 2026-06-29 Late Active Update
+
+The current no-extra-bit Stage 4 adapter anchor is now the long
+detail-residual-target continuation:
+
+```text
+run:
+  20260629_stage4_detailtarget_perceptual_long_ft1800_b8_full552_eval
+
+actual_payload_bpp:
+  0.013999
+
+metrics:
+  PSNR     21.3043
+  MS-SSIM   0.7166
+  LPIPS     0.4080
+  DISTS     0.2780
+  condition_l1 0.4104
+```
+
+This supersedes the earlier detail-contrast Stage 4 anchor for active
+continuation. It is still not an external-baseline win.
+
+The current strongest internal Stage 5 perceptual counted-control candidate is:
+
+```text
+run:
+  20260629_stage5_detailtarget_perceptual_long_g32basis_postgate_controlaware_perceptual_full552...topk_c256_k32...
+
+actual_payload_bpp:
+  0.015484
+
+control_payload_bpp:
+  0.001485
+
+metrics:
+  PSNR     21.1337
+  MS-SSIM   0.7101
+  LPIPS     0.3696
+  DISTS     0.2572
+  condition_l1 0.4043
+```
+
+The current balanced Stage 5 counted-control anchor is:
+
+```text
+run:
+  20260629_stage5_detailtarget_perceptual_long_g32basis_postgate_balanced_full552...topk_c256_k32...
+
+actual_payload_bpp:
+  0.015484
+
+control_payload_bpp:
+  0.001485
+
+metrics:
+  PSNR     21.2378
+  MS-SSIM   0.7146
+  LPIPS     0.3825
+  DISTS     0.2660
+  condition_l1 0.4013
+  gate_mean    1.0046
+```
+
+Interpretation:
+
+```text
+The perceptual gate gives the strongest internal LPIPS/DISTS/FID pressure.
+The balanced gate is the safer continuation anchor because it keeps much more
+fidelity and slightly improves over fixed control scale 1.0 at unchanged
+actual_payload_bpp.
+```
+
+Full552 feature-use ablations on the balanced Stage 5 anchor:
+
+```text
+semantic latent shuffle:
+  PSNR -0.1395
+  MS-SSIM -0.0076
+  LPIPS +0.0083
+  DISTS +0.0035
+  condition_l1 +0.0053
+
+detail context zero:
+  PSNR +0.0400
+  MS-SSIM -0.0001
+  LPIPS +0.0111
+  DISTS +0.0054
+  condition_l1 +0.0062
+```
+
+Interpretation:
+
+```text
+The balanced Stage 5 path clearly uses semantic latent information.
+Detail context helps perceptual/condition quality but is not yet a fidelity
+booster, so the next mainline detail work should make the same transmitted
+detail payload more diffusion-control-friendly.
+```
+
+Initial actual-bpp control curve with the same balanced gate:
+
+```text
+no-extra Stage4:
+  bpp 0.013999
+  PSNR 21.3043 / MS-SSIM 0.7166 / LPIPS 0.4080 / DISTS 0.2780
+
+top-k16:
+  bpp 0.014977
+  control_bpp 0.000978
+  PSNR 21.2341 / MS-SSIM 0.7144 / LPIPS 0.3833 / DISTS 0.2662
+
+top-k24:
+  bpp 0.015233
+  control_bpp 0.001234
+  PSNR 21.2351 / MS-SSIM 0.7144 / LPIPS 0.3828 / DISTS 0.2660
+
+top-k32:
+  bpp 0.015484
+  control_bpp 0.001485
+  PSNR 21.2378 / MS-SSIM 0.7146 / LPIPS 0.3825 / DISTS 0.2660
+
+top-k48:
+  bpp 0.015984
+  control_bpp 0.001985
+  PSNR 21.2392 / MS-SSIM 0.7145 / LPIPS 0.3820 / DISTS 0.2658
+```
+
+Interpretation:
+
+```text
+The first roughly 0.001 bpp of counted control gives most of the current
+LPIPS/DISTS gain. More sparse coefficients show diminishing returns, so the
+next large gains likely require better control/detail representation or
+rate-specific adapter/gate training, not only larger top-k.
+```
+
+Top-k16-specific gate probe:
+
+```text
+run:
+  20260629_stage5_detailtarget_long_topk16_specific_gate_full552
+
+same actual bpp as top-k16 curve point:
+  0.014977
+
+delta versus reusing the top-k32-trained balanced gate:
+  PSNR    -0.0127
+  MS-SSIM -0.0005
+  LPIPS   -0.0014
+  DISTS   -0.0012
+```
+
+Interpretation:
+
+```text
+Rate-specific gate training can improve perceptual metrics at equal actual
+bpp, but the first top-k16 run trades away a little fidelity. Continue with
+rate-specific gates, but add stronger fidelity guards or multi-objective
+selection.
+```
+
+Top-k16 gate regularization probe:
+
+```text
+smoothguard:
+  bpp 0.014977
+  PSNR 21.2424 / MS-SSIM 0.7150 / LPIPS 0.3866 / DISTS 0.2674
+
+midguard:
+  bpp 0.014977
+  PSNR 21.2357 / MS-SSIM 0.7147 / LPIPS 0.3846 / DISTS 0.2666
+```
+
+Interpretation:
+
+```text
+Gate deviation/TV regularization is implemented and works as a stability
+control, but it did not produce a top-k16 Pareto improvement. Stronger
+smoothing recovers fidelity while weakening perceptual gains; weaker smoothing
+mostly returns to the reused-gate point. Do not spend more effort on gate-only
+sweeps until the adapter/control representation improves.
+```
+
+GenCodec-style patch-FID/KID versus Stage 3:
+
+```text
+Kodak24:
+  Stage3 216.3567 / 0.150822
+  Stage5  77.1709 / 0.019143
+  balanced 81.1976 / 0.022353
+
+CLIC2020 test428:
+  Stage3 152.0035 / 0.079694
+  Stage5  56.3215 / 0.006421
+  balanced 57.6185 / 0.006986
+
+DIV2K val100:
+  Stage3 234.6295 / 0.092627
+  Stage5 151.8839 / 0.012842
+  balanced 153.6698 / 0.013911
+```
+
+Interpretation:
+
+```text
+Stage 5 now gives large internal perceptual/distribution improvements from the
+CoSER semantic/detail actual bitstream plus a tiny counted control stream.
+However, official CoD-Lite remains far ahead on Kodak LPIPS/DISTS/FID at a
+comparable nominal rate, so do not claim external curve superiority.
+```
+
+See:
+
+```text
+docs/research/design_decisions/065_stage4_detailtarget_long_and_stage5_rebased_control_20260629.md
+```
+
+## 2026-06-29 Earlier Active Update
 
 The current no-extra-bit Stage 4 adapter anchor is now the detail-contrast
 CoD-Lite condition adapter:
@@ -2620,4 +3195,105 @@ Detailed record:
 
 ```text
 docs/research/design_decisions/061_stage4_detailcontrast_and_stage5_sparse_control.md
+```
+
+## 2026-06-29 Stage 5 control-aware adapter training probe
+
+Implemented training-time counted control support:
+
+```text
+script:
+  scripts/train_stage4_cod_lite_adapter.py
+
+new option:
+  --train-counted-control-mode condition_residual_affine_basis
+```
+
+Purpose:
+
+```text
+Train the CoSER-to-CoD-Lite adapter with the same entropy-coded affine+basis
+condition-control path used at evaluation time, so the adapter is optimized for
+an actual transmitted control operating point rather than only a continuous
+teacher condition.
+```
+
+Run:
+
+```text
+20260629_stage5_controlaware_adapter_lora0156_all_k16_ft400_b4ga2
+
+checkpoint:
+  checkpoints/stage4_cod_lite_adapter/20260629_stage5_controlaware_adapter_lora0156_all_k16_ft400_b4ga2.pt
+
+training summary:
+  results/stage4_cod_lite_adapter/20260629_stage5_controlaware_adapter_lora0156_all_k16_ft400_b4ga2/summary.json
+```
+
+Training diagnostic:
+
+```text
+pre_control_condition_l1_mean:
+  0.3934
+
+condition_l1_mean after counted control:
+  0.3873
+
+control_condition_l1_delta_mean:
+  -0.0061
+
+control_payload_bpp_512_mean:
+  0.000990
+```
+
+Full552 comparison:
+
+| run | bpp | PSNR | MS-SSIM | LPIPS | DISTS | condition L1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| LoRA-all no-extra | 0.013999 | 21.2926 | 0.7149 | 0.3867 | 0.2686 | 0.4113 |
+| LoRA-all + k16 control | 0.014980 | 21.1959 | 0.7116 | 0.3664 | 0.2574 | 0.4030 |
+| control-aware FT400, no control | 0.013999 | 21.3594 | 0.7166 | 0.3888 | 0.2716 | 0.4106 |
+| control-aware FT400 + k16 control | 0.014978 | 21.2492 | 0.7130 | 0.3655 | 0.2589 | 0.4017 |
+| pre-control guarded FT300 + k16 control | 0.014978 | 21.2452 | 0.7121 | 0.3658 | 0.2591 | 0.4013 |
+
+GenCodec-style patch-FID/KID for control-aware FT400 + k16 control:
+
+| split | FID | KID |
+| --- | ---: | ---: |
+| Kodak24 | 80.9884 | 0.020049 |
+| CLIC2020 test428 | 62.7218 | 0.010622 |
+| DIV2K val100 | 161.8326 | 0.021273 |
+
+Decision:
+
+```text
+Do not promote this checkpoint.
+
+It is useful infrastructure because training-time counted control now works,
+but this exact loss recipe is not a good long-run seed:
+  - raw adapter moved toward fidelity but worsened LPIPS/DISTS
+  - counted control recovers LPIPS but DISTS is worse than the previous k16 point
+  - pre-control condition L1 guard slightly improves condition L1 but still
+    does not recover DISTS
+  - CLIC/DIV2K patch-FID/KID are worse than the stronger existing
+    detailtarget long balanced/postgate anchors
+```
+
+Next mainline implication:
+
+```text
+The adapter should learn a residual that is complementary to the fixed k16
+control basis, not rely on a control correction that chases a moving target.
+
+Next experiments should focus on:
+  - complementary residual/control-aware loss
+  - stronger DISTS/FID-aware but fidelity-guarded condition training
+  - deterministic condition/control-space content gate
+  - Stage 3 diffusion-friendly detail-control heads
+```
+
+Detailed record:
+
+```text
+docs/research/design_decisions/069_stage5_controlaware_adapter_training_probe_20260629.md
 ```

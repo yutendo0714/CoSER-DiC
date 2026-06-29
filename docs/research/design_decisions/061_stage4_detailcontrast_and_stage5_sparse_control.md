@@ -2,6 +2,16 @@
 
 Date: 2026-06-29 JST
 
+Status update:
+
+```text
+Superseded for active continuation by:
+docs/research/design_decisions/065_stage4_detailtarget_long_and_stage5_rebased_control_20260629.md
+
+Keep this file as the historical record for the first detail-contrast sparse
+counted-control anchor.
+```
+
 ## Decision
 
 Promote `20260629_stage4_detailfilm_detailcontrast_hf_ft800_b8` as the current
@@ -442,6 +452,59 @@ These distribution metrics confirm two things:
    a control-aware gate, not another fixed scale sweep.
 ```
 
+## Condition-Statistics Audit
+
+The current no-extra-bit Stage 4 adapter was also audited in condition space on
+the full strict 512 split:
+
+```text
+run:
+  20260629_stage4_detailcontrast_condition_stats_full552
+
+summary:
+  results/stage4_cod_lite_condition_stats/20260629_stage4_detailcontrast_condition_stats_full552/summary.json
+```
+
+The adapter is clearly using decoded CoSER information:
+
+```text
+base -> target:
+  L1           0.5372
+  relative L2  0.8761
+  cosine       0.6220
+
+pred -> target:
+  L1           0.4108
+  relative L2  0.6696
+  cosine       0.7573
+
+pred better than base:
+  L1           99.64%
+  relative L2  99.82%
+```
+
+But the predicted condition is still too weak/smooth:
+
+```text
+target std / highfreq ratio:
+  0.7953 / 0.2575
+
+base std / highfreq ratio:
+  0.8235 / 0.2776
+
+pred std / highfreq ratio:
+  0.7417 / 0.2400
+```
+
+Interpretation:
+
+```text
+Condition L1 optimization is moving in the right direction, but it is
+compressing the condition distribution. The next adapter/gate training should
+add condition mean/std and spatial-spectrum matching, while retaining
+Stage3/fidelity guards.
+```
+
 ## Research Consequence
 
 Current bottleneck:
@@ -560,7 +623,127 @@ inside training. Promotion requires full552/split metrics and, if competitive,
 saved reconstructions with GenCodec-style patch-FID/KID.
 ```
 
-Next exact evaluation command:
+The full552 evaluation is now complete:
+
+```text
+full552 eval:
+  results/stage4_cod_lite_adapter_eval/20260629_stage5_detailcontrast_hf_g32basis_postgate_controlaware_perceptual_full552_affinebasis_ag16_as1_bg32_bs8_k32_b4_topkc256_gr1_br0.25_r0.702655_sc1_huffman_mu_law_mu16_topk_c256_k32_p99_b4_mulaw16/summary.json
+
+actual_payload_bpp:
+  0.015486
+
+metrics:
+  PSNR     21.1187
+  MS-SSIM   0.7126
+  LPIPS     0.3780
+  DISTS     0.2635
+  condition_l1 0.4029
+  post_control_gate_mean 1.0604
+```
+
+Delta versus counted-control-only `control_scale=1.0`:
+
+```text
+PSNR     -0.0430
+MS-SSIM  -0.0023
+LPIPS    -0.0111
+DISTS    -0.0056
+condition_l1 +0.0011
+```
+
+Delta versus fixed perceptual `control_scale=1.25`:
+
+```text
+PSNR     -0.0132
+MS-SSIM  -0.0014
+LPIPS    -0.0064
+DISTS    -0.0028
+condition_l1 +0.0002
+```
+
+Delta versus the previous post-control reused balanced-gate probe:
+
+```text
+PSNR     -0.0062
+MS-SSIM  -0.0003
+LPIPS    -0.0033
+DISTS    -0.0015
+condition_l1 +0.0001
+```
+
+Split deltas versus the previous post-control reused balanced-gate probe:
+
+```text
+Kodak24:
+  PSNR +0.0098 / MS-SSIM +0.0006 / LPIPS -0.0025 / DISTS -0.0008 / condition_l1 -0.0007
+
+CLIC2020 test428:
+  PSNR -0.0089 / MS-SSIM -0.0004 / LPIPS -0.0033 / DISTS -0.0016 / condition_l1 +0.0002
+
+DIV2K val100:
+  PSNR +0.0014 / MS-SSIM -0.0000 / LPIPS -0.0034 / DISTS -0.0009 / condition_l1 +0.0000
+```
+
+Updated interpretation:
+
+```text
+The true control-aware perceptual gate is the strongest current LPIPS/DISTS
+operating point at the same counted payload. It is not balanced: it trades
+fidelity and condition L1 for perceptual quality. It should be treated as a
+perceptual curve point and a signal that content/condition-space gate learning
+works, not as evidence of external-baseline superiority.
+
+Before promotion beyond a curve point, compute saved reconstructions and
+GenCodec-style patch-FID/KID, then inspect structure failures.
+```
+
+Saved reconstructions:
+
+```text
+results/stage4_cod_lite_adapter_eval/20260629_stage5_detailcontrast_hf_g32basis_postgate_controlaware_perceptual_full552_save_affinebasis_ag16_as1_bg32_bs8_k32_b4_topkc256_gr1_br0.25_r0.702655_sc1_huffman_mu_law_mu16_topk_c256_k32_p99_b4_mulaw16/reconstructions/
+```
+
+Patch-FID/KID under the same GenCodec-style patch protocol:
+
+```text
+Kodak24:
+  FID 78.8185
+  KID 0.021144
+
+CLIC2020 test428:
+  FID 57.1402
+  KID 0.006855
+
+DIV2K val100:
+  FID 153.0634
+  KID 0.013843
+```
+
+Delta versus the previous post-control reused balanced-gate probe:
+
+```text
+Kodak24:
+  FID +0.1381 / KID +0.000810
+
+CLIC2020 test428:
+  FID -0.2913 / KID -0.000105
+
+DIV2K val100:
+  FID +0.1089 / KID +0.000193
+```
+
+Distribution interpretation:
+
+```text
+The true control-aware perceptual gate improves CLIC patch-FID/KID and
+full552 LPIPS/DISTS, but slightly regresses Kodak and DIV2K distribution
+metrics versus the previous reused-gate post-control probe. Do not promote it
+as the Stage 5 distribution anchor. Keep it as a perceptual curve point and use
+the result as evidence that the next gate must explicitly guard
+distribution/structure, not only LPIPS/DISTS.
+```
+
+Reproduction command for the true control-aware perceptual full552 evaluation:
 
 ```bash
 .venv/bin/python scripts/eval_stage4_cod_lite_adapter.py \

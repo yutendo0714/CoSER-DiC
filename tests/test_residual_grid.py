@@ -37,6 +37,21 @@ def test_uniform_residual_grid_rejects_invalid_codes() -> None:
         raise AssertionError("invalid residual code should fail")
 
 
+def test_zero_centered_residual_grid_has_exact_zero_code() -> None:
+    code = UniformResidualGridCode(bits=2, value_range=0.25, codec="fixed_bits", quantizer="zero_centered")
+    residual = torch.tensor([-0.25, -0.01, 0.0, 0.01, 0.25], dtype=torch.float32)
+
+    codes = code.quantize(residual)
+    payload = code.encode(codes)
+    decoded = code.decode(payload, shape=tuple(codes.shape))
+    dequantized = code.dequantize(decoded)
+
+    assert torch.equal(decoded, codes)
+    assert int(code.quantize(torch.zeros(1))[0].item()) == code.zero_code
+    assert float(code.dequantize(torch.tensor([code.zero_code], dtype=torch.long))[0].item()) == 0.0
+    assert torch.max(torch.abs(dequantized - residual)).item() <= 0.125
+
+
 def test_static_residual_grid_huffman_roundtrip() -> None:
     residual = torch.tensor(
         [
@@ -56,6 +71,26 @@ def test_static_residual_grid_huffman_roundtrip() -> None:
     assert torch.equal(decoded, codes)
     assert huffman.encoded_bits(codes) <= codes.numel() * 4
     assert StaticResidualGridHuffmanCode.from_dict(huffman.to_dict()).bits == 4
+
+
+def test_static_residual_grid_huffman_preserves_zero_centered_quantizer() -> None:
+    residual = torch.tensor([[-0.1, 0.0, 0.1, 0.2]], dtype=torch.float32)
+    quantizer = UniformResidualGridCode(bits=3, value_range=0.25, quantizer="zero_centered")
+    codes = quantizer.quantize(residual)
+    counts = torch.bincount(codes.reshape(-1), minlength=quantizer.levels)
+    huffman = StaticResidualGridHuffmanCode.from_counts(
+        counts,
+        bits=3,
+        value_range=0.25,
+        quantizer="zero_centered",
+        smoothing_count=1,
+    )
+
+    restored = StaticResidualGridHuffmanCode.from_dict(huffman.to_dict())
+
+    assert huffman.to_dict()["quantizer"] == "zero_centered"
+    assert restored.quantizer.quantizer == "zero_centered"
+    assert torch.equal(restored.decode(restored.encode(codes), shape=tuple(codes.shape)), codes)
 
 
 def test_static_residual_grid_position_huffman_roundtrip() -> None:

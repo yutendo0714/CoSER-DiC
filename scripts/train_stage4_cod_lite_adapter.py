@@ -31,6 +31,18 @@ from coserdic.models import (
 )
 from coserdic.utils import seed_everything
 from coserdic.utils.wandb_utils import init_wandb
+from eval_stage4_cod_lite_adapter import (
+    basis_component_codebook_codec as control_basis_component_codebook_codec,
+    basis_component_ranges as control_basis_component_ranges,
+    basis_vector_codebook_codec as control_basis_vector_codebook_codec,
+    build_control_grid_code as control_build_control_grid_code,
+    channel_group_sizes as control_channel_group_sizes,
+    grouped_condition_affine_basis_control as control_grouped_condition_affine_basis_control,
+    load_control_basis as control_load_control_basis,
+    load_control_huffman_prior as control_load_control_huffman_prior,
+    load_sparse_topk_control_huffman_prior as control_load_sparse_topk_control_huffman_prior,
+    load_vector_codebook_huffman_prior as control_load_vector_codebook_huffman_prior,
+)
 
 
 def detail_context_channels(mode: str) -> int:
@@ -124,7 +136,24 @@ def _load_detail_context(cache: dict[str, object], mode: str) -> torch.Tensor:
         detail_codes = cache["detail_codes"].float()
         if detail_codes.ndim == 4 and detail_codes.shape[0] == 1:
             detail_codes = detail_codes.squeeze(0)
-        detail_codes = detail_codes / 15.0 * 2.0 - 1.0
+        detail_bits = int(cache.get("detail_bits", 4))
+        detail_levels = int(cache.get("detail_levels", 1 << detail_bits))
+        if detail_levels <= 1:
+            raise ValueError(f"invalid detail_levels in decoder feature cache: {detail_levels}")
+        detail_quantizer = str(cache.get("detail_quantizer", "uniform"))
+        if detail_quantizer == "zero_centered":
+            zero_code = detail_levels // 2
+            positive_denominator = max(detail_levels - 1 - zero_code, 1)
+            signed = detail_codes - float(zero_code)
+            detail_codes = torch.where(
+                signed >= 0,
+                signed / float(positive_denominator),
+                signed / float(zero_code),
+            )
+        elif detail_quantizer == "uniform":
+            detail_codes = detail_codes / float(detail_levels - 1) * 2.0 - 1.0
+        else:
+            raise ValueError(f"unknown detail_quantizer in decoder feature cache: {detail_quantizer}")
         return torch.cat([residual_grid, detail_codes], dim=0)
     raise ValueError(f"unknown detail_context: {mode}")
 
@@ -254,6 +283,9 @@ def build_adapter(
     num_detail_blocks: int,
     num_fusion_blocks: int,
     detail_control_branch: bool,
+    detail_control_blocks: int,
+    detail_control_condition_fusion: bool,
+    detail_highfreq_context_branch: bool,
     detail_film_modulation: bool,
 ) -> CoSERToCoDLiteConditionAdapter | CoSERToCoDLiteConditionPyramidAdapter:
     if adapter_kind == "light":
@@ -278,6 +310,9 @@ def build_adapter(
                 num_detail_blocks=num_detail_blocks,
                 num_fusion_blocks=num_fusion_blocks,
                 detail_control_branch=detail_control_branch,
+                detail_control_blocks=detail_control_blocks,
+                detail_control_condition_fusion=detail_control_condition_fusion,
+                detail_highfreq_context_branch=detail_highfreq_context_branch,
                 detail_film_modulation=detail_film_modulation,
                 zero_init_output=True,
             )
@@ -343,6 +378,16 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=2.0e-4)
     parser.add_argument("--condition-l1-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--pre-control-condition-l1-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Auxiliary L1 loss on the adapter condition before counted-control correction. "
+            "Useful for control-aware training so the adapter stays useful on its own and "
+            "the transmitted control stream complements it instead of carrying the whole correction."
+        ),
+    )
     parser.add_argument("--condition-cosine-weight", type=float, default=0.0)
     parser.add_argument("--condition-channel-stats-weight", type=float, default=0.0)
     parser.add_argument("--condition-highfreq-weight", type=float, default=0.0)
@@ -358,6 +403,7 @@ def main() -> None:
     parser.add_argument("--detail-contrast-margin", type=float, default=0.0)
     parser.add_argument("--detail-highfreq-residual-weight", type=float, default=0.0)
     parser.add_argument("--detail-highfreq-kernel-size", type=int, default=5)
+    parser.add_argument("--detail-residual-target-weight", type=float, default=0.0)
     parser.add_argument("--image-l1-weight", type=float, default=0.25)
     parser.add_argument("--lpips-weight", type=float, default=0.0)
     parser.add_argument("--dists-weight", type=float, default=0.0)
@@ -367,6 +413,43 @@ def main() -> None:
     parser.add_argument("--stage3-guard-margin", type=float, default=0.0)
     parser.add_argument("--condition-residual-scale", type=float, default=1.0)
     parser.add_argument("--condition-residual-tanh", action="store_true")
+    parser.add_argument(
+        "--train-counted-control-mode",
+        choices=("none", "condition_residual_affine_basis", "condition_base_affine_basis"),
+        default="none",
+        help=(
+            "Use an actually entropy-coded control simulation inside adapter training. "
+            "condition_residual_affine_basis codes the residual after the current adapter condition. "
+            "condition_base_affine_basis codes a fixed teacher/base correction, so the adapter learns "
+            "the complementary condition residual. Only decoded, byte-countable control corrections "
+            "are used by the image/condition losses."
+        ),
+    )
+    parser.add_argument("--control-grid-size", type=int, default=8)
+    parser.add_argument("--control-groups", type=int, default=32)
+    parser.add_argument("--control-basis", default="")
+    parser.add_argument("--control-basis-components", type=int, default=16)
+    parser.add_argument("--control-basis-candidate-components", type=int, default=0)
+    parser.add_argument("--control-basis-prefix-components", type=int, default=0)
+    parser.add_argument("--control-basis-selection", choices=("prefix", "topk", "vector", "prefix_topk"), default="topk")
+    parser.add_argument(
+        "--control-basis-range-mode",
+        choices=("global", "component_p95", "component_p99", "component_codebook"),
+        default="global",
+    )
+    parser.add_argument("--control-basis-range-floor", type=float, default=1.0e-6)
+    parser.add_argument("--control-codec", choices=("fixed_bits", "huffman"), default="huffman")
+    parser.add_argument("--control-huffman-key", default="")
+    parser.add_argument("--control-prefix-huffman-key", default="")
+    parser.add_argument("--control-quantizer", choices=("uniform", "mu_law"), default="mu_law")
+    parser.add_argument("--control-mu", type=float, default=16.0)
+    parser.add_argument("--control-bits", type=int, default=4)
+    parser.add_argument("--control-range", type=float, default=0.25)
+    parser.add_argument("--control-affine-groups", type=int, default=16)
+    parser.add_argument("--control-affine-grid-size", type=int, default=1)
+    parser.add_argument("--control-affine-gain-range", type=float, default=1.0)
+    parser.add_argument("--control-affine-bias-range", type=float, default=0.25)
+    parser.add_argument("--control-scale", type=float, default=1.0)
     parser.add_argument("--grad-clip-norm", type=float, default=0.0)
     parser.add_argument("--init-checkpoint", default="")
     parser.add_argument(
@@ -410,6 +493,9 @@ def main() -> None:
     parser.add_argument("--num-detail-blocks", type=int, default=0)
     parser.add_argument("--num-fusion-blocks", type=int, default=4)
     parser.add_argument("--detail-control-branch", action="store_true")
+    parser.add_argument("--detail-control-blocks", type=int, default=0)
+    parser.add_argument("--detail-control-condition-fusion", action="store_true")
+    parser.add_argument("--detail-highfreq-context-branch", action="store_true")
     parser.add_argument("--detail-film-modulation", action="store_true")
     parser.add_argument("--init-nonstrict", action="store_true")
     parser.add_argument("--seed", type=int, default=1234)
@@ -445,10 +531,45 @@ def main() -> None:
         raise ValueError("--detail-highfreq-residual-weight must be >= 0")
     if args.detail_highfreq_kernel_size < 1 or args.detail_highfreq_kernel_size % 2 != 1:
         raise ValueError("--detail-highfreq-kernel-size must be a positive odd integer")
+    if args.detail_residual_target_weight < 0.0:
+        raise ValueError("--detail-residual-target-weight must be >= 0")
+    if args.detail_control_blocks < 0:
+        raise ValueError("--detail-control-blocks must be >= 0")
+    if args.detail_control_blocks > 0 and not args.detail_control_branch:
+        raise ValueError("--detail-control-blocks requires --detail-control-branch")
+    if args.detail_control_condition_fusion and not args.detail_control_branch:
+        raise ValueError("--detail-control-condition-fusion requires --detail-control-branch")
+    if args.detail_highfreq_context_branch and detail_context_channels(args.detail_context) <= 0:
+        raise ValueError("--detail-highfreq-context-branch requires --detail-context != none")
     if args.condition_residual_rms_guard_weight < 0.0:
         raise ValueError("--condition-residual-rms-guard-weight must be >= 0")
     if args.condition_residual_rms_guard_ratio <= 0.0:
         raise ValueError("--condition-residual-rms-guard-ratio must be positive")
+    if args.pre_control_condition_l1_weight < 0.0:
+        raise ValueError("--pre-control-condition-l1-weight must be >= 0")
+    if args.train_counted_control_mode != "none":
+        if not args.control_basis:
+            raise ValueError("--train-counted-control-mode requires --control-basis")
+        if args.control_grid_size <= 0:
+            raise ValueError("--control-grid-size must be positive")
+        if args.control_groups <= 0:
+            raise ValueError("--control-groups must be positive")
+        if args.control_basis_components <= 0:
+            raise ValueError("--control-basis-components must be positive")
+        if args.control_bits <= 0:
+            raise ValueError("--control-bits must be positive")
+        if args.control_range <= 0.0:
+            raise ValueError("--control-range must be positive")
+        if args.control_basis_range_floor <= 0.0:
+            raise ValueError("--control-basis-range-floor must be positive")
+        if args.control_affine_groups <= 0:
+            raise ValueError("--control-affine-groups must be positive")
+        if args.control_affine_grid_size <= 0:
+            raise ValueError("--control-affine-grid-size must be positive")
+        if args.control_affine_gain_range <= 0.0:
+            raise ValueError("--control-affine-gain-range must be positive")
+        if args.control_affine_bias_range <= 0.0:
+            raise ValueError("--control-affine-bias-range must be positive")
     if args.backbone_train_pattern and args.backbone_lr <= 0.0:
         raise ValueError("--backbone-train-pattern requires --backbone-lr > 0")
     if args.backbone_lora_pattern and args.backbone_lora_lr <= 0.0:
@@ -465,6 +586,8 @@ def main() -> None:
         raise ValueError("--detail-contrast-weight requires --detail-context != none")
     if args.detail_highfreq_residual_weight > 0.0 and detail_channels <= 0:
         raise ValueError("--detail-highfreq-residual-weight requires --detail-context != none")
+    if args.detail_residual_target_weight > 0.0 and detail_channels <= 0:
+        raise ValueError("--detail-residual-target-weight requires --detail-context != none")
     run_name = args.run_name or f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_stage4_cod_lite_adapter"
     output_dir = Path(args.output_dir)
     results_dir = Path(args.results_dir) / run_name
@@ -538,6 +661,9 @@ def main() -> None:
         num_detail_blocks=args.num_detail_blocks,
         num_fusion_blocks=args.num_fusion_blocks,
         detail_control_branch=args.detail_control_branch,
+        detail_control_blocks=args.detail_control_blocks,
+        detail_control_condition_fusion=args.detail_control_condition_fusion,
+        detail_highfreq_context_branch=args.detail_highfreq_context_branch,
         detail_film_modulation=args.detail_film_modulation,
     ).to(device)
     if args.init_checkpoint:
@@ -570,6 +696,218 @@ def main() -> None:
                 strict=False,
             )
             print(f"Loaded backbone trainable state tensors: {len(loaded_backbone_names)}")
+
+    control_basis_payload: dict[str, object] | None = None
+    control_huffman = None
+    control_sparse_huffman = None
+    basis_control_codec = None
+    affine_gain_codec = None
+    affine_bias_codec = None
+    effective_control_bits = int(args.control_bits)
+    effective_control_range = float(args.control_range)
+    effective_control_quantizer = str(args.control_quantizer)
+    effective_control_mu = float(args.control_mu)
+    effective_control_huffman_key = str(args.control_huffman_key)
+    effective_control_basis_range_mode = str(args.control_basis_range_mode)
+    effective_candidate_components = int(args.control_basis_components)
+    if args.train_counted_control_mode in {"condition_residual_affine_basis", "condition_base_affine_basis"}:
+        control_channel_group_sizes(backbone.condition_channels, args.control_affine_groups)
+        control_basis_payload = control_load_control_basis(args.control_basis, device=device)
+        if int(control_basis_payload["groups"]) != args.control_groups:
+            raise ValueError("--control-groups must match control basis groups")
+        if int(control_basis_payload["grid_size"]) != args.control_grid_size:
+            raise ValueError("--control-grid-size must match control basis grid_size")
+        basis_tensor = control_basis_payload["basis"]
+        if not isinstance(basis_tensor, torch.Tensor):
+            raise TypeError("loaded control basis is not a tensor")
+        if args.control_basis_selection in {"topk", "prefix_topk"} and args.control_basis_candidate_components > 0:
+            effective_candidate_components = int(args.control_basis_candidate_components)
+        if args.control_basis_components > effective_candidate_components:
+            raise ValueError("--control-basis-components must be <= --control-basis-candidate-components")
+        if args.control_basis_selection == "vector":
+            effective_candidate_components = int(args.control_basis_components)
+        if args.control_basis_selection == "prefix_topk":
+            if args.control_basis_prefix_components <= 0:
+                raise ValueError("--control-basis-prefix-components must be positive for selection=prefix_topk")
+            if args.control_basis_prefix_components >= effective_candidate_components:
+                raise ValueError("--control-basis-prefix-components must be < candidate components")
+            if args.control_basis_components > effective_candidate_components - args.control_basis_prefix_components:
+                raise ValueError(
+                    "--control-basis-components must be <= candidate-prefix components for selection=prefix_topk"
+                )
+        if effective_candidate_components > int(basis_tensor.shape[0]):
+            raise ValueError("--control-basis-candidate-components exceeds basis tensor count")
+        if args.control_codec == "huffman" and args.control_basis_selection == "prefix":
+            (
+                control_huffman,
+                effective_control_bits,
+                effective_control_range,
+                effective_control_quantizer,
+                effective_control_mu,
+                effective_control_huffman_key,
+                prior_basis_range_mode,
+            ) = control_load_control_huffman_prior(
+                control_basis_payload,
+                key=args.control_huffman_key,
+                components=args.control_basis_components,
+            )
+            if prior_basis_range_mode != "global":
+                if effective_control_basis_range_mode not in {"global", prior_basis_range_mode}:
+                    raise ValueError("Huffman prior basis_range_mode conflicts with --control-basis-range-mode")
+                effective_control_basis_range_mode = prior_basis_range_mode
+        elif args.control_codec == "huffman" and args.control_basis_selection == "topk":
+            (
+                index_huffman,
+                value_huffman,
+                effective_control_bits,
+                effective_control_range,
+                effective_control_quantizer,
+                effective_control_mu,
+                effective_control_huffman_key,
+                prior_basis_range_mode,
+            ) = control_load_sparse_topk_control_huffman_prior(
+                control_basis_payload,
+                key=args.control_huffman_key,
+                candidate_components=effective_candidate_components,
+                components=args.control_basis_components,
+            )
+            control_sparse_huffman = (index_huffman, value_huffman)
+            if prior_basis_range_mode != "global":
+                if effective_control_basis_range_mode not in {"global", prior_basis_range_mode}:
+                    raise ValueError("sparse Huffman prior basis_range_mode conflicts with --control-basis-range-mode")
+                effective_control_basis_range_mode = prior_basis_range_mode
+        elif args.control_codec == "huffman" and args.control_basis_selection == "prefix_topk":
+            (
+                prefix_huffman,
+                prefix_bits,
+                prefix_range,
+                prefix_quantizer,
+                prefix_mu,
+                prefix_huffman_key,
+                prefix_basis_range_mode,
+            ) = control_load_control_huffman_prior(
+                control_basis_payload,
+                key=args.control_prefix_huffman_key,
+                components=args.control_basis_prefix_components,
+            )
+            (
+                index_huffman,
+                value_huffman,
+                sparse_bits,
+                sparse_range,
+                sparse_quantizer,
+                sparse_mu,
+                sparse_huffman_key,
+                sparse_basis_range_mode,
+            ) = control_load_sparse_topk_control_huffman_prior(
+                control_basis_payload,
+                key=args.control_huffman_key,
+                candidate_components=effective_candidate_components,
+                components=args.control_basis_components,
+            )
+            if int(prefix_bits) != int(sparse_bits):
+                raise ValueError("prefix_topk prefix and sparse Huffman priors must use the same bit depth")
+            if str(prefix_quantizer) != str(sparse_quantizer):
+                raise ValueError("prefix_topk prefix and sparse Huffman priors must use the same quantizer")
+            if abs(float(prefix_range) - float(sparse_range)) > 1.0e-8:
+                raise ValueError("prefix_topk prefix and sparse Huffman priors must use the same value range")
+            if abs(float(prefix_mu) - float(sparse_mu)) > 1.0e-8:
+                raise ValueError("prefix_topk prefix and sparse Huffman priors must use the same mu")
+            for prior_basis_range_mode in (prefix_basis_range_mode, sparse_basis_range_mode):
+                if prior_basis_range_mode != "global":
+                    if effective_control_basis_range_mode not in {"global", prior_basis_range_mode}:
+                        raise ValueError(
+                            "prefix_topk Huffman prior basis_range_mode conflicts with --control-basis-range-mode"
+                        )
+                    effective_control_basis_range_mode = prior_basis_range_mode
+            control_huffman = prefix_huffman
+            control_sparse_huffman = (index_huffman, value_huffman)
+            effective_control_bits = int(sparse_bits)
+            effective_control_range = float(sparse_range)
+            effective_control_quantizer = str(sparse_quantizer)
+            effective_control_mu = float(sparse_mu)
+            effective_control_huffman_key = f"prefix:{prefix_huffman_key}|tail:{sparse_huffman_key}"
+        elif args.control_codec == "huffman" and args.control_basis_selection == "vector":
+            (
+                control_huffman,
+                effective_control_bits,
+                effective_control_huffman_key,
+            ) = control_load_vector_codebook_huffman_prior(
+                control_basis_payload,
+                key=args.control_huffman_key,
+                components=args.control_basis_components,
+                bits=args.control_bits,
+            )
+
+        basis_range_components = (
+            effective_candidate_components
+            if args.control_basis_selection in {"topk", "prefix_topk"}
+            else args.control_basis_components
+        )
+        if args.control_basis_selection == "vector":
+            basis_control_codec, vector_key = control_basis_vector_codebook_codec(
+                control_basis_payload,
+                components=args.control_basis_components,
+                bits=effective_control_bits,
+                key=effective_control_huffman_key if args.control_codec == "huffman" else "",
+            )
+            if not effective_control_huffman_key:
+                effective_control_huffman_key = vector_key
+        elif effective_control_basis_range_mode == "component_codebook":
+            basis_control_codec = control_basis_component_codebook_codec(
+                control_basis_payload,
+                bits=effective_control_bits,
+                components=basis_range_components,
+            )
+        else:
+            basis_value_ranges = control_basis_component_ranges(
+                control_basis_payload,
+                mode=effective_control_basis_range_mode,
+                components=basis_range_components,
+                floor=args.control_basis_range_floor,
+            )
+            basis_control_codec = control_build_control_grid_code(
+                quantizer=effective_control_quantizer,
+                bits=effective_control_bits,
+                value_range=effective_control_range,
+                mu=effective_control_mu,
+                value_ranges=basis_value_ranges,
+            )
+        affine_gain_codec = control_build_control_grid_code(
+            quantizer=effective_control_quantizer,
+            bits=effective_control_bits,
+            value_range=args.control_affine_gain_range,
+            mu=effective_control_mu,
+        )
+        affine_bias_codec = control_build_control_grid_code(
+            quantizer=effective_control_quantizer,
+            bits=effective_control_bits,
+            value_range=args.control_affine_bias_range,
+            mu=effective_control_mu,
+        )
+
+    train_counted_control_config = {
+        "mode": args.train_counted_control_mode,
+        "basis": args.control_basis,
+        "grid_size": args.control_grid_size,
+        "groups": args.control_groups,
+        "basis_components": args.control_basis_components,
+        "basis_candidate_components": effective_candidate_components,
+        "basis_prefix_components": args.control_basis_prefix_components,
+        "basis_selection": args.control_basis_selection,
+        "basis_range_mode": effective_control_basis_range_mode,
+        "codec": args.control_codec,
+        "huffman_key": effective_control_huffman_key,
+        "quantizer": effective_control_quantizer,
+        "mu": effective_control_mu,
+        "bits": effective_control_bits,
+        "range": effective_control_range,
+        "affine_groups": args.control_affine_groups,
+        "affine_grid_size": args.control_affine_grid_size,
+        "affine_gain_range": args.control_affine_gain_range,
+        "affine_bias_range": args.control_affine_bias_range,
+        "scale": args.control_scale,
+    }
     optimizer_groups: list[dict[str, object]] = [{"params": list(adapter.parameters()), "lr": args.lr}]
     if backbone_trainable_names:
         backbone_trainable_params = [
@@ -619,11 +957,16 @@ def main() -> None:
             "effective_batch_size": args.batch_size * args.grad_accum_steps,
             "condition_residual_scale": args.condition_residual_scale,
             "condition_residual_tanh": args.condition_residual_tanh,
+            "pre_control_condition_l1_weight": args.pre_control_condition_l1_weight,
+            "train_counted_control": train_counted_control_config,
             "num_image_blocks": args.num_image_blocks,
             "num_condition_blocks": args.num_condition_blocks,
             "num_detail_blocks": args.num_detail_blocks,
             "num_fusion_blocks": args.num_fusion_blocks,
             "detail_control_branch": args.detail_control_branch,
+            "detail_control_blocks": args.detail_control_blocks,
+            "detail_control_condition_fusion": args.detail_control_condition_fusion,
+            "detail_highfreq_context_branch": args.detail_highfreq_context_branch,
             "detail_film_modulation": args.detail_film_modulation,
             "init_nonstrict": args.init_nonstrict,
             "condition_cosine_weight": args.condition_cosine_weight,
@@ -637,6 +980,7 @@ def main() -> None:
             "detail_contrast_margin": args.detail_contrast_margin,
             "detail_highfreq_residual_weight": args.detail_highfreq_residual_weight,
             "detail_highfreq_kernel_size": args.detail_highfreq_kernel_size,
+            "detail_residual_target_weight": args.detail_residual_target_weight,
             "grad_clip_norm": args.grad_clip_norm,
             "init_checkpoint": args.init_checkpoint,
             "backbone_train_pattern": args.backbone_train_pattern,
@@ -694,6 +1038,12 @@ def main() -> None:
     metrics: dict[str, list[float]] = {
         "loss": [],
         "condition_l1": [],
+        "adapter_target_condition_l1": [],
+        "pre_control_condition_l1": [],
+        "control_condition_l1_delta": [],
+        "control_payload_bytes": [],
+        "control_payload_bpp_512": [],
+        "control_grid_abs": [],
         "condition_cosine_loss": [],
         "condition_channel_stats_loss": [],
         "condition_highfreq_loss": [],
@@ -706,6 +1056,9 @@ def main() -> None:
         "detail_highfreq_residual_loss": [],
         "detail_highfreq_residual_pred_l1": [],
         "detail_highfreq_residual_target_l1": [],
+        "detail_residual_target_loss": [],
+        "detail_residual_target_pred_l1": [],
+        "detail_residual_target_target_l1": [],
         "base_condition_l1": [],
         "condition_l1_delta_vs_base": [],
         "condition_cosine": [],
@@ -793,8 +1146,57 @@ def main() -> None:
                 residual_scale=args.condition_residual_scale,
                 residual_tanh=args.condition_residual_tanh,
             )
+            pre_control_pred_cond = pred_cond
+            pre_control_condition_l1 = F.l1_loss(pre_control_pred_cond.float(), target_cond.float())
+            adapter_target_cond = target_cond.float()
+            control_payload_bytes = reference.new_tensor(0.0)
+            control_payload_bpp_512 = reference.new_tensor(0.0)
+            control_grid_abs = reference.new_tensor(0.0)
+            if args.train_counted_control_mode in {"condition_residual_affine_basis", "condition_base_affine_basis"}:
+                if (
+                    control_basis_payload is None
+                    or basis_control_codec is None
+                    or affine_gain_codec is None
+                    or affine_bias_codec is None
+                ):
+                    raise RuntimeError("counted control codecs were not initialized")
+                control_source_cond = (
+                    base_cond.detach().float()
+                    if args.train_counted_control_mode == "condition_base_affine_basis"
+                    else pre_control_pred_cond.detach().float()
+                )
+                with torch.no_grad():
+                    control_correction, control_payload_byte_rows, control_abs_rows = (
+                        control_grouped_condition_affine_basis_control(
+                            base_cond.float(),
+                            control_source_cond,
+                            target_cond.float(),
+                            affine_groups=args.control_affine_groups,
+                            affine_grid_size=args.control_affine_grid_size,
+                            gain_codec=affine_gain_codec,
+                            bias_codec=affine_bias_codec,
+                            basis_payload=control_basis_payload,
+                            components=args.control_basis_components,
+                            candidate_components=effective_candidate_components,
+                            selection=args.control_basis_selection,
+                            basis_codec=basis_control_codec,
+                            prefix_components=args.control_basis_prefix_components,
+                            huffman=control_huffman,
+                            sparse_huffman=control_sparse_huffman,
+                            scale=args.control_scale,
+                        )
+                    )
+                    control_payload_bytes = reference.new_tensor(
+                        float(sum(control_payload_byte_rows) / max(len(control_payload_byte_rows), 1))
+                    )
+                    control_payload_bpp_512 = control_payload_bytes * 8.0 / float(stage3.shape[-2] * stage3.shape[-1])
+                    control_grid_abs = control_abs_rows.float().mean()
+                    adapter_target_cond = target_cond.float() - control_correction.float()
+                pred_cond = pre_control_pred_cond + control_correction.to(dtype=pre_control_pred_cond.dtype)
             condition_l1 = F.l1_loss(pred_cond.float(), target_cond.float())
+            adapter_target_condition_l1 = F.l1_loss(pre_control_pred_cond.float(), adapter_target_cond.float())
             base_condition_l1 = F.l1_loss(base_cond.float(), target_cond.float())
+            control_condition_l1_delta = condition_l1 - pre_control_condition_l1
             condition_cosine = F.cosine_similarity(
                 pred_cond.float().flatten(1),
                 target_cond.float().flatten(1),
@@ -836,8 +1238,15 @@ def main() -> None:
             detail_hf_residual = condition_l1.new_tensor(0.0)
             detail_hf_residual_pred_l1 = condition_l1.new_tensor(0.0)
             detail_hf_residual_target_l1 = condition_l1.new_tensor(0.0)
+            detail_residual_target = condition_l1.new_tensor(0.0)
+            detail_residual_target_pred_l1 = condition_l1.new_tensor(0.0)
+            detail_residual_target_target_l1 = condition_l1.new_tensor(0.0)
             zero_detail_pred_cond = None
-            if args.detail_contrast_weight > 0 or args.detail_highfreq_residual_weight > 0:
+            if (
+                args.detail_contrast_weight > 0
+                or args.detail_highfreq_residual_weight > 0
+                or args.detail_residual_target_weight > 0
+            ):
                 if detail_context_for_adapter is None:
                     raise RuntimeError("detail residual losses require detail_context_for_adapter")
                 zero_detail_context = torch.zeros_like(detail_context_for_adapter)
@@ -859,16 +1268,16 @@ def main() -> None:
             if args.detail_contrast_weight > 0:
                 if zero_detail_pred_cond is None:
                     raise RuntimeError("detail contrast requires zero_detail_pred_cond")
-                detail_condition_l1_zero = F.l1_loss(zero_detail_pred_cond.float(), target_cond.float())
-                detail_condition_l1_gap = detail_condition_l1_zero - condition_l1
+                detail_condition_l1_zero = F.l1_loss(zero_detail_pred_cond.float(), adapter_target_cond.float())
+                detail_condition_l1_gap = detail_condition_l1_zero - adapter_target_condition_l1
                 detail_contrast = torch.relu(
-                    condition_l1 - detail_condition_l1_zero + args.detail_contrast_margin
+                    adapter_target_condition_l1 - detail_condition_l1_zero + args.detail_contrast_margin
                 )
             if args.detail_highfreq_residual_weight > 0:
                 if zero_detail_pred_cond is None:
                     raise RuntimeError("detail high-frequency residual loss requires zero_detail_pred_cond")
-                pred_detail_residual = pred_cond - zero_detail_pred_cond
-                target_condition_residual = target_cond - base_cond
+                pred_detail_residual = pre_control_pred_cond - zero_detail_pred_cond
+                target_condition_residual = adapter_target_cond - base_cond.float()
                 pred_detail_hf = condition_local_highpass(
                     pred_detail_residual,
                     kernel_size=args.detail_highfreq_kernel_size,
@@ -880,6 +1289,17 @@ def main() -> None:
                 detail_hf_residual = F.l1_loss(pred_detail_hf, target_detail_hf)
                 detail_hf_residual_pred_l1 = pred_detail_hf.abs().mean()
                 detail_hf_residual_target_l1 = target_detail_hf.abs().mean()
+            if args.detail_residual_target_weight > 0:
+                if zero_detail_pred_cond is None:
+                    raise RuntimeError("detail residual target loss requires zero_detail_pred_cond")
+                pred_detail_residual = pre_control_pred_cond - zero_detail_pred_cond
+                target_condition_residual = adapter_target_cond - base_cond.float()
+                detail_residual_target = F.l1_loss(
+                    pred_detail_residual.float(),
+                    target_condition_residual.float(),
+                )
+                detail_residual_target_pred_l1 = pred_detail_residual.float().abs().mean()
+                detail_residual_target_target_l1 = target_condition_residual.float().abs().mean()
             if use_image_decode_loss:
                 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                     stage4 = backbone(stage3, pred_cond)
@@ -916,12 +1336,14 @@ def main() -> None:
                     ).mean()
             loss = (
                 args.condition_l1_weight * condition_l1
+                + args.pre_control_condition_l1_weight * pre_control_condition_l1
                 + args.condition_cosine_weight * condition_cos
                 + args.condition_channel_stats_weight * condition_stats
                 + args.condition_highfreq_weight * condition_hf
                 + args.condition_residual_rms_guard_weight * condition_rms_guard
                 + args.detail_contrast_weight * detail_contrast
                 + args.detail_highfreq_residual_weight * detail_hf_residual
+                + args.detail_residual_target_weight * detail_residual_target
                 + args.image_l1_weight * image_l1
                 + args.lpips_weight * lpips_loss
                 + args.dists_weight * dists_loss
@@ -942,6 +1364,12 @@ def main() -> None:
             row = {
                 "loss": float(loss.item()),
                 "condition_l1": float(condition_l1.item()),
+                "adapter_target_condition_l1": float(adapter_target_condition_l1.item()),
+                "pre_control_condition_l1": float(pre_control_condition_l1.item()),
+                "control_condition_l1_delta": float(control_condition_l1_delta.item()),
+                "control_payload_bytes": float(control_payload_bytes.item()),
+                "control_payload_bpp_512": float(control_payload_bpp_512.item()),
+                "control_grid_abs": float(control_grid_abs.item()),
                 "condition_cosine_loss": float(condition_cos.item()),
                 "condition_channel_stats_loss": float(condition_stats.item()),
                 "condition_highfreq_loss": float(condition_hf.item()),
@@ -954,6 +1382,9 @@ def main() -> None:
                 "detail_highfreq_residual_loss": float(detail_hf_residual.item()),
                 "detail_highfreq_residual_pred_l1": float(detail_hf_residual_pred_l1.item()),
                 "detail_highfreq_residual_target_l1": float(detail_hf_residual_target_l1.item()),
+                "detail_residual_target_loss": float(detail_residual_target.item()),
+                "detail_residual_target_pred_l1": float(detail_residual_target_pred_l1.item()),
+                "detail_residual_target_target_l1": float(detail_residual_target_target_l1.item()),
                 "base_condition_l1": float(base_condition_l1.item()),
                 "condition_l1_delta_vs_base": float(condition_l1.item() - base_condition_l1.item()),
                 "condition_cosine": float(condition_cosine.item()),
@@ -1022,11 +1453,16 @@ def main() -> None:
             "effective_batch_size": args.batch_size * args.grad_accum_steps,
             "condition_residual_scale": args.condition_residual_scale,
             "condition_residual_tanh": args.condition_residual_tanh,
+            "pre_control_condition_l1_weight": args.pre_control_condition_l1_weight,
+            "train_counted_control": train_counted_control_config,
             "num_image_blocks": args.num_image_blocks,
             "num_condition_blocks": args.num_condition_blocks,
             "num_detail_blocks": args.num_detail_blocks,
             "num_fusion_blocks": args.num_fusion_blocks,
             "detail_control_branch": args.detail_control_branch,
+            "detail_control_blocks": args.detail_control_blocks,
+            "detail_control_condition_fusion": args.detail_control_condition_fusion,
+            "detail_highfreq_context_branch": args.detail_highfreq_context_branch,
             "detail_film_modulation": args.detail_film_modulation,
             "init_nonstrict": args.init_nonstrict,
             "condition_cosine_weight": args.condition_cosine_weight,
@@ -1040,6 +1476,7 @@ def main() -> None:
             "detail_contrast_margin": args.detail_contrast_margin,
             "detail_highfreq_residual_weight": args.detail_highfreq_residual_weight,
             "detail_highfreq_kernel_size": args.detail_highfreq_kernel_size,
+            "detail_residual_target_weight": args.detail_residual_target_weight,
             "image_l1_weight": args.image_l1_weight,
             "lpips_weight": args.lpips_weight,
             "dists_weight": args.dists_weight,

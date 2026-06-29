@@ -479,6 +479,9 @@ class CoSERToCoDLiteConditionPyramidAdapterConfig:
     num_detail_blocks: int = 0
     num_fusion_blocks: int = 4
     detail_control_branch: bool = False
+    detail_control_blocks: int = 0
+    detail_control_condition_fusion: bool = False
+    detail_highfreq_context_branch: bool = False
     detail_film_modulation: bool = False
     zero_init_output: bool = True
 
@@ -523,6 +526,16 @@ class CoSERToCoDLiteConditionPyramidAdapter(nn.Module):
                 nn.Conv2d(cfg.detail_context_channels, cfg.hidden_channels, kernel_size=1),
                 nn.SiLU(),
             )
+            if cfg.detail_highfreq_context_branch:
+                self.detail_highfreq_proj = nn.Conv2d(
+                    cfg.detail_context_channels * 2,
+                    cfg.hidden_channels,
+                    kernel_size=1,
+                )
+                nn.init.zeros_(self.detail_highfreq_proj.weight)
+                nn.init.zeros_(self.detail_highfreq_proj.bias)
+            else:
+                self.detail_highfreq_proj = None
             self.detail_blocks = nn.Sequential(
                 *[
                     _ConditionResidualBlock(cfg.hidden_channels, zero_init_last=True)
@@ -530,10 +543,25 @@ class CoSERToCoDLiteConditionPyramidAdapter(nn.Module):
                 ]
             )
             if cfg.detail_control_branch:
+                if cfg.detail_control_condition_fusion:
+                    self.detail_control_in = nn.Sequential(
+                        nn.Conv2d(cfg.hidden_channels * 2, cfg.hidden_channels, kernel_size=1),
+                        nn.SiLU(),
+                    )
+                else:
+                    self.detail_control_in = nn.Identity()
+                self.detail_control_blocks = nn.Sequential(
+                    *[
+                        _ConditionResidualBlock(cfg.hidden_channels, zero_init_last=True)
+                        for _ in range(cfg.detail_control_blocks)
+                    ]
+                )
                 self.detail_control_out = nn.Conv2d(cfg.hidden_channels, cfg.condition_channels, kernel_size=1)
                 nn.init.zeros_(self.detail_control_out.weight)
                 nn.init.zeros_(self.detail_control_out.bias)
             else:
+                self.detail_control_in = None
+                self.detail_control_blocks = None
                 self.detail_control_out = None
             if cfg.detail_film_modulation:
                 self.detail_film = nn.Conv2d(cfg.hidden_channels, cfg.hidden_channels * 2, kernel_size=1)
@@ -544,6 +572,9 @@ class CoSERToCoDLiteConditionPyramidAdapter(nn.Module):
             fusion_inputs += 1
         else:
             self.detail_blocks = nn.Identity()
+            self.detail_highfreq_proj = None
+            self.detail_control_in = None
+            self.detail_control_blocks = None
             self.detail_control_out = None
             self.detail_film = None
         self.fuse_in = nn.Sequential(
@@ -609,10 +640,22 @@ class CoSERToCoDLiteConditionPyramidAdapter(nn.Module):
                     f"got {detail_context.shape[1]}, expected {self.cfg.detail_context_channels}"
                 )
             detail_features = self.detail_proj(detail_context)
+            if self.detail_highfreq_proj is not None:
+                detail_highfreq = detail_context - F.avg_pool2d(detail_context, kernel_size=3, stride=1, padding=1)
+                detail_features = detail_features + self.detail_highfreq_proj(
+                    torch.cat([detail_highfreq, detail_context.abs()], dim=1)
+                )
             detail_features = F.interpolate(detail_features, size=condition_size, mode="bilinear", align_corners=False)
             detail_features = self.detail_blocks(detail_features)
             if self.detail_control_out is not None:
-                detail_condition_delta = self.detail_control_out(detail_features)
+                detail_control_features = detail_features
+                if self.cfg.detail_control_condition_fusion:
+                    detail_control_features = torch.cat([detail_control_features, condition_features], dim=1)
+                if self.detail_control_in is None or self.detail_control_blocks is None:
+                    raise RuntimeError("detail control modules are not initialized")
+                detail_control_features = self.detail_control_in(detail_control_features)
+                detail_control_features = self.detail_control_blocks(detail_control_features)
+                detail_condition_delta = self.detail_control_out(detail_control_features)
             if self.detail_film is not None:
                 detail_gamma, detail_beta = self.detail_film(detail_features).chunk(2, dim=1)
                 detail_film_params = (detail_gamma, detail_beta)

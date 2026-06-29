@@ -85,6 +85,8 @@ def main() -> None:
     parser.add_argument("--stage3-guard-margin", type=float, default=0.0)
     parser.add_argument("--gate-mean-target", type=float, default=0.0)
     parser.add_argument("--gate-mean-weight", type=float, default=0.0)
+    parser.add_argument("--gate-deviation-weight", type=float, default=0.0)
+    parser.add_argument("--gate-tv-weight", type=float, default=0.0)
     parser.add_argument(
         "--counted-control-mode",
         choices=("none", "condition_residual_affine_basis"),
@@ -150,6 +152,10 @@ def main() -> None:
         raise ValueError("--control-range must be positive")
     if args.control_mu <= 0:
         raise ValueError("--control-mu must be positive")
+    if args.gate_deviation_weight < 0.0:
+        raise ValueError("--gate-deviation-weight must be >= 0")
+    if args.gate_tv_weight < 0.0:
+        raise ValueError("--gate-tv-weight must be >= 0")
     if args.control_affine_gain_range <= 0:
         raise ValueError("--control-affine-gain-range must be positive")
     if args.control_affine_bias_range <= 0:
@@ -408,6 +414,8 @@ def main() -> None:
             "stage3_guard_margin": args.stage3_guard_margin,
             "gate_mean_target": args.gate_mean_target,
             "gate_mean_weight": args.gate_mean_weight,
+            "gate_deviation_weight": args.gate_deviation_weight,
+            "gate_tv_weight": args.gate_tv_weight,
             "counted_control_mode": args.counted_control_mode,
             "control_basis": args.control_basis,
             "control_basis_components": args.control_basis_components,
@@ -446,6 +454,8 @@ def main() -> None:
         "stage3_l1_guard": [],
         "stage3_mse_guard": [],
         "gate_mean_loss": [],
+        "gate_deviation_loss": [],
+        "gate_tv_loss": [],
         "control_payload_bytes": [],
         "control_grid_abs_mean": [],
         "stage4_psnr": [],
@@ -576,6 +586,23 @@ def main() -> None:
                 gate_mean_loss = (gate.float().mean() - args.gate_mean_target) ** 2
             else:
                 gate_mean_loss = image_l1.new_tensor(0.0)
+            if args.gate_deviation_weight > 0:
+                gate_deviation_loss = (gate.float() - args.gate_mean_target).pow(2).mean()
+            else:
+                gate_deviation_loss = image_l1.new_tensor(0.0)
+            if args.gate_tv_weight > 0:
+                gate_float = gate.float()
+                if gate_float.shape[-2] > 1:
+                    gate_tv_h = torch.mean(torch.abs(gate_float[..., 1:, :] - gate_float[..., :-1, :]))
+                else:
+                    gate_tv_h = image_l1.new_tensor(0.0)
+                if gate_float.shape[-1] > 1:
+                    gate_tv_w = torch.mean(torch.abs(gate_float[..., :, 1:] - gate_float[..., :, :-1]))
+                else:
+                    gate_tv_w = image_l1.new_tensor(0.0)
+                gate_tv_loss = gate_tv_h + gate_tv_w
+            else:
+                gate_tv_loss = image_l1.new_tensor(0.0)
             loss = (
                 args.image_l1_weight * image_l1
                 + args.lpips_weight * lpips_loss
@@ -586,6 +613,8 @@ def main() -> None:
                 + args.stage3_l1_guard_weight * l1_guard
                 + args.stage3_mse_guard_weight * mse_guard
                 + args.gate_mean_weight * gate_mean_loss
+                + args.gate_deviation_weight * gate_deviation_loss
+                + args.gate_tv_weight * gate_tv_loss
             )
             (loss / args.grad_accum_steps).backward()
 
@@ -607,6 +636,8 @@ def main() -> None:
                     "stage3_l1_guard": float(l1_guard.item()),
                     "stage3_mse_guard": float(mse_guard.item()),
                     "gate_mean_loss": float(gate_mean_loss.item()),
+                    "gate_deviation_loss": float(gate_deviation_loss.item()),
+                    "gate_tv_loss": float(gate_tv_loss.item()),
                     "control_payload_bytes": control_payload_bytes_mean,
                     "control_grid_abs_mean": control_grid_abs_mean,
                     "stage4_psnr": float(stage4_psnr.item()),
@@ -641,6 +672,10 @@ def main() -> None:
                 "deterministic decoder-side condition gate from decoded CoSER tensors and fixed model weights; "
                 "no transmitted gate side information and no RGB output blending"
             ),
+            "gate_mean_target": args.gate_mean_target,
+            "gate_mean_weight": args.gate_mean_weight,
+            "gate_deviation_weight": args.gate_deviation_weight,
+            "gate_tv_weight": args.gate_tv_weight,
             "counted_control_mode": args.counted_control_mode,
             "control_basis": args.control_basis,
             "control_basis_components": args.control_basis_components,

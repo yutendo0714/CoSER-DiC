@@ -799,6 +799,17 @@ def main() -> None:
     parser.add_argument("--vector-codebook-max-iter", type=int, default=50)
     parser.add_argument("--sparse-topk-candidate-components", nargs="+", type=int, default=[])
     parser.add_argument("--sparse-topk-components", nargs="+", type=int, default=[])
+    parser.add_argument(
+        "--basis-source",
+        choices=("post_adapter", "base_condition"),
+        default="post_adapter",
+        help=(
+            "Which deterministic decoder-side condition is subtracted before fitting the basis. "
+            "post_adapter matches condition_residual_* controls. base_condition fits controls "
+            "for condition_base_affine_basis, where the transmitted control is fixed relative "
+            "to native Stage3/base condition and the adapter learns the complementary residual."
+        ),
+    )
     parser.add_argument("--pre-basis-affine", choices=("true", "false"), default="false")
     parser.add_argument("--pre-basis-affine-groups", type=int, default=0)
     parser.add_argument("--pre-basis-affine-grid-size", type=int, default=1)
@@ -953,6 +964,8 @@ def main() -> None:
                     residual_scale=residual_scale,
                     residual_tanh=residual_tanh,
                 )
+                if args.basis_source == "base_condition":
+                    pred_cond = base_cond
                 if pre_basis_affine:
                     affine_correction, _, _ = grouped_condition_affine_control(
                         base_cond.float(),
@@ -1069,6 +1082,7 @@ def main() -> None:
         "grid_size": args.grid_size,
         "components": args.components,
         "center": args.center == "true",
+        "basis_source": args.basis_source,
         "condition_residual_scale": residual_scale,
         "condition_residual_tanh": residual_tanh,
         "pre_basis_affine": pre_basis_affine,
@@ -1130,6 +1144,7 @@ def main() -> None:
             "groups": args.groups,
             "grid_size": args.grid_size,
             "components": args.components,
+            "basis_source": args.basis_source,
             "pre_basis_affine": pre_basis_affine,
             "pre_basis_affine_groups": effective_pre_basis_affine_groups,
             "pre_basis_affine_grid_size": args.pre_basis_affine_grid_size,

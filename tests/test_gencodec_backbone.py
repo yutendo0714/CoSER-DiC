@@ -227,6 +227,87 @@ def test_coser_to_cod_lite_pyramid_adapter_detail_control_branch_directly_adds_c
     assert torch.allclose(cond, torch.full_like(cond, 0.125))
 
 
+def test_coser_to_cod_lite_pyramid_adapter_detail_control_condition_fusion_zero_init() -> None:
+    adapter = CoSERToCoDLiteConditionPyramidAdapter(
+        CoSERToCoDLiteConditionPyramidAdapterConfig(
+            semantic_channels=12,
+            detail_context_channels=6,
+            condition_channels=8,
+            hidden_channels=16,
+            num_image_blocks=1,
+            num_condition_blocks=1,
+            num_detail_blocks=1,
+            num_fusion_blocks=1,
+            detail_control_branch=True,
+            detail_control_blocks=2,
+            detail_control_condition_fusion=True,
+            zero_init_output=True,
+        )
+    )
+    assert adapter.detail_control_in is not None
+    assert adapter.detail_control_blocks is not None
+    assert adapter.detail_control_out is not None
+    x_aux = torch.rand(2, 3, 64, 64)
+    x_sem = torch.rand(2, 3, 64, 64)
+    residual = torch.rand(2, 3, 64, 64) - 0.5
+    semantic_latent = torch.rand(2, 12, 4, 4)
+    detail_context = torch.rand(2, 6, 4, 4)
+    base_condition = torch.rand(2, 8, 4, 4)
+
+    cond = adapter(
+        x_aux,
+        x_sem,
+        residual,
+        semantic_latent,
+        condition_size=(4, 4),
+        base_condition=base_condition,
+        detail_context=detail_context,
+    )
+
+    assert cond.shape == (2, 8, 4, 4)
+    assert torch.count_nonzero(cond) == 0
+
+
+def test_coser_to_cod_lite_pyramid_adapter_detail_highfreq_context_branch_zero_init() -> None:
+    adapter = CoSERToCoDLiteConditionPyramidAdapter(
+        CoSERToCoDLiteConditionPyramidAdapterConfig(
+            semantic_channels=12,
+            detail_context_channels=6,
+            condition_channels=8,
+            hidden_channels=16,
+            num_image_blocks=1,
+            num_condition_blocks=1,
+            num_detail_blocks=1,
+            num_fusion_blocks=1,
+            detail_control_branch=True,
+            detail_control_blocks=1,
+            detail_control_condition_fusion=True,
+            detail_highfreq_context_branch=True,
+            zero_init_output=True,
+        )
+    )
+    assert adapter.detail_highfreq_proj is not None
+    x_aux = torch.rand(2, 3, 64, 64)
+    x_sem = torch.rand(2, 3, 64, 64)
+    residual = torch.rand(2, 3, 64, 64) - 0.5
+    semantic_latent = torch.rand(2, 12, 4, 4)
+    detail_context = torch.rand(2, 6, 4, 4)
+    base_condition = torch.rand(2, 8, 4, 4)
+
+    cond = adapter(
+        x_aux,
+        x_sem,
+        residual,
+        semantic_latent,
+        condition_size=(4, 4),
+        base_condition=base_condition,
+        detail_context=detail_context,
+    )
+
+    assert cond.shape == (2, 8, 4, 4)
+    assert torch.count_nonzero(cond) == 0
+
+
 def test_coser_to_cod_lite_pyramid_adapter_detail_film_modulation_zero_init() -> None:
     adapter = CoSERToCoDLiteConditionPyramidAdapter(
         CoSERToCoDLiteConditionPyramidAdapterConfig(

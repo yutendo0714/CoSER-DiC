@@ -44,6 +44,15 @@ from scripts.eval_stage3_uniform_residual_bitstream import (
 )
 
 
+def residual_quantizer_name(residual_code) -> str:
+    if isinstance(residual_code, StaticResidualGridHybridHuffmanCode):
+        return str(residual_code.position_code.quantizer.quantizer)
+    quantizer = getattr(residual_code, "quantizer", "uniform")
+    if isinstance(quantizer, str):
+        return quantizer
+    return str(getattr(quantizer, "quantizer", "uniform"))
+
+
 def load_residual_code(args: argparse.Namespace):
     if args.detail_codec in {
         "huffman",
@@ -69,8 +78,15 @@ def load_residual_code(args: argparse.Namespace):
             raise ValueError("--detail-bits does not match residual Huffman prior")
         if abs(float(args.detail_range) - residual_code.value_range) > 1.0e-9:
             raise ValueError("--detail-range does not match residual Huffman prior")
+        if str(args.detail_quantizer) != residual_quantizer_name(residual_code):
+            raise ValueError("--detail-quantizer does not match residual Huffman prior")
         return residual_code
-    return UniformResidualGridCode(bits=args.detail_bits, value_range=args.detail_range, codec=args.detail_codec)
+    return UniformResidualGridCode(
+        bits=args.detail_bits,
+        value_range=args.detail_range,
+        codec=args.detail_codec,
+        quantizer=args.detail_quantizer,
+    )
 
 
 def main() -> None:
@@ -88,6 +104,7 @@ def main() -> None:
     parser.add_argument("--detail-downsample-factor", type=int, default=32)
     parser.add_argument("--detail-bits", type=int, default=4)
     parser.add_argument("--detail-range", type=float, default=0.25)
+    parser.add_argument("--detail-quantizer", choices=["uniform", "zero_centered"], default="uniform")
     parser.add_argument("--detail-gain", type=float, default=1.0)
     parser.add_argument(
         "--detail-codec",
@@ -228,6 +245,12 @@ def main() -> None:
                             "semantic_latent": semantic_latent.detach().cpu().to(torch.bfloat16),
                             "residual_grid_hat": residual_grid_hat.detach().cpu().to(torch.bfloat16),
                             "detail_codes": detail_codes.detach().cpu().to(torch.int16),
+                            "detail_bits": int(args.detail_bits),
+                            "detail_levels": int(residual_code.levels),
+                            "detail_range": float(args.detail_range),
+                            "detail_quantizer": str(args.detail_quantizer),
+                            "detail_downsample_factor": int(args.detail_downsample_factor),
+                            "detail_codec": str(args.detail_codec),
                             "semantic_shape": tuple(int(v) for v in decoded_indices.shape),
                             "semantic_latent_shape": tuple(int(v) for v in semantic_latent.shape),
                             "detail_shape": tuple(int(v) for v in detail_codes.shape),
@@ -298,6 +321,7 @@ def main() -> None:
             "detail_downsample_factor": int(args.detail_downsample_factor),
             "detail_bits": int(args.detail_bits),
             "detail_range": float(args.detail_range),
+            "detail_quantizer": str(args.detail_quantizer),
             "detail_gain": float(args.detail_gain),
             "actual_payload_bpp": "",
             "paper_bpp": "",

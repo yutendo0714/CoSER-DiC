@@ -144,6 +144,7 @@ def main() -> None:
     parser.add_argument("--detail-downsample-factor", type=int, default=32)
     parser.add_argument("--detail-bits", type=int, default=4)
     parser.add_argument("--detail-range", type=float, default=0.25)
+    parser.add_argument("--detail-quantizer", choices=["uniform", "zero_centered"], default="uniform")
     parser.add_argument(
         "--coding-mode",
         choices=[
@@ -182,7 +183,12 @@ def main() -> None:
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
 
     detail_hw = args.crop_size // args.detail_downsample_factor
-    quantizer = UniformResidualGridCode(bits=args.detail_bits, value_range=args.detail_range, codec="fixed_bits")
+    quantizer = UniformResidualGridCode(
+        bits=args.detail_bits,
+        value_range=args.detail_range,
+        codec="fixed_bits",
+        quantizer=args.detail_quantizer,
+    )
     counts = torch.zeros(quantizer.levels, dtype=torch.long)
     position_counts = torch.zeros(3, detail_hw, detail_hw, quantizer.levels, dtype=torch.long)
     semantic_position_counts = torch.zeros(
@@ -316,6 +322,7 @@ def main() -> None:
             semantic_position_leftctx_counts,
             bits=args.detail_bits,
             value_range=args.detail_range,
+            quantizer=args.detail_quantizer,
             semantic_shape=semantic_shape,
             token_to_group=token_to_group,
             smoothing_count=args.smoothing_count,
@@ -327,6 +334,7 @@ def main() -> None:
             semantic_position_counts,
             bits=args.detail_bits,
             value_range=args.detail_range,
+            quantizer=args.detail_quantizer,
             semantic_shape=semantic_shape,
             token_to_group=token_to_group,
             smoothing_count=args.smoothing_count,
@@ -336,6 +344,7 @@ def main() -> None:
             position_counts,
             bits=args.detail_bits,
             value_range=args.detail_range,
+            quantizer=args.detail_quantizer,
             smoothing_count=args.smoothing_count,
         )
     else:
@@ -343,6 +352,7 @@ def main() -> None:
             counts,
             bits=args.detail_bits,
             value_range=args.detail_range,
+            quantizer=args.detail_quantizer,
             smoothing_count=args.smoothing_count,
         )
 
@@ -433,6 +443,7 @@ def main() -> None:
             "calibration_roots": [str(v) for v in roots],
             "detail_downsample_factor": int(args.detail_downsample_factor),
             "detail_shape": [3, int(detail_hw), int(detail_hw)],
+            "detail_quantizer": str(args.detail_quantizer),
             "coding_mode": args.coding_mode,
             "smoothing_count": int(args.smoothing_count),
             "counts": [int(v) for v in counts.tolist()],
@@ -478,6 +489,7 @@ def main() -> None:
         "detail_shape": [3, int(detail_hw), int(detail_hw)],
         "detail_bits": int(args.detail_bits),
         "detail_range": float(args.detail_range),
+        "detail_quantizer": str(args.detail_quantizer),
         "coding_mode": args.coding_mode,
         "smoothing_count": int(args.smoothing_count),
         "semantic_group_count": int(args.semantic_group_count)

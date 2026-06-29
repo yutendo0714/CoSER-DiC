@@ -20,6 +20,7 @@ from .control_grid import (
 from .leakage import FORBIDDEN_DECODER_SIDE_INFO, assert_no_forbidden_side_info
 from .residual_grid import (
     ResidualGridCodec,
+    ResidualGridQuantizer,
     StaticResidualGridHuffmanCode,
     StaticResidualGridHybridHuffmanCode,
     StaticResidualGridPositionHuffmanCode,
@@ -44,6 +45,7 @@ __all__ = [
     "FORBIDDEN_DECODER_SIDE_INFO",
     "PackedStreams",
     "ResidualGridCodec",
+    "ResidualGridQuantizer",
     "SUPPORTED_SEMANTIC_TOKEN_CODECS",
     "SemanticTokenCodec",
     "StaticANSCode",

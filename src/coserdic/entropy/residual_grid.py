@@ -10,6 +10,7 @@ from .static_huffman import StaticHuffmanCode
 
 
 ResidualGridCodec = Literal["fixed_bits", "zlib_fixed_bits", "huffman"]
+ResidualGridQuantizer = Literal["uniform", "zero_centered"]
 
 
 def _pack_huffman_values(
@@ -95,6 +96,13 @@ def _left_sign_context_id(value: int, levels: int) -> int:
     return 3
 
 
+def _residual_quantizer_from_payload(payload: dict[str, object]) -> ResidualGridQuantizer:
+    quantizer = str(payload.get("quantizer", "uniform"))
+    if quantizer not in {"uniform", "zero_centered"}:
+        raise ValueError(f"unsupported residual quantizer: {quantizer}")
+    return quantizer  # type: ignore[return-value]
+
+
 @dataclass(frozen=True)
 class UniformResidualGridCode:
     """Uniform quantized residual-grid payload for Stage 3 bootstrapping.
@@ -107,6 +115,7 @@ class UniformResidualGridCode:
     bits: int = 6
     value_range: float = 0.5
     codec: ResidualGridCodec = "zlib_fixed_bits"
+    quantizer: ResidualGridQuantizer = "uniform"
 
     def __post_init__(self) -> None:
         if not 1 <= int(self.bits) <= 16:
@@ -115,15 +124,36 @@ class UniformResidualGridCode:
             raise ValueError("value_range must be positive")
         if self.codec not in {"fixed_bits", "zlib_fixed_bits", "huffman"}:
             raise ValueError(f"unsupported residual grid codec: {self.codec}")
+        if self.quantizer not in {"uniform", "zero_centered"}:
+            raise ValueError(f"unsupported residual quantizer: {self.quantizer}")
+        if self.quantizer == "zero_centered" and int(self.bits) < 2:
+            raise ValueError("zero_centered residual quantizer requires bits >= 2")
 
     @property
     def levels(self) -> int:
         return 1 << int(self.bits)
 
+    @property
+    def zero_code(self) -> int:
+        if self.quantizer == "zero_centered":
+            return self.levels // 2
+        return int(round(float(self.levels - 1) / 2.0))
+
     def quantize(self, residual_grid: torch.Tensor) -> torch.Tensor:
         if residual_grid.numel() == 0:
             raise ValueError("residual_grid must be non-empty")
         clipped = residual_grid.detach().cpu().float().clamp(-float(self.value_range), float(self.value_range))
+        if self.quantizer == "zero_centered":
+            zero_code = self.zero_code
+            positive_denominator = max(self.levels - 1 - zero_code, 1)
+            negative_step = float(self.value_range) / float(zero_code)
+            positive_step = float(self.value_range) / float(positive_denominator)
+            signed_codes = torch.where(
+                clipped >= 0,
+                torch.round(clipped / positive_step),
+                torch.round(clipped / negative_step),
+            )
+            return torch.clamp(signed_codes + float(zero_code), 0, self.levels - 1).to(torch.long)
         normalized = (clipped + float(self.value_range)) / (2.0 * float(self.value_range))
         return torch.round(normalized * float(self.levels - 1)).to(torch.long)
 
@@ -135,6 +165,13 @@ class UniformResidualGridCode:
         max_value = int(values.max().item())
         if min_value < 0 or max_value >= self.levels:
             raise ValueError(f"residual code out of range: min={min_value}, max={max_value}, levels={self.levels}")
+        if self.quantizer == "zero_centered":
+            zero_code = self.zero_code
+            positive_denominator = max(self.levels - 1 - zero_code, 1)
+            negative_step = float(self.value_range) / float(zero_code)
+            positive_step = float(self.value_range) / float(positive_denominator)
+            signed = values.float() - float(zero_code)
+            return torch.where(signed >= 0, signed * positive_step, signed * negative_step)
         normalized = values.float() / float(self.levels - 1)
         return normalized * (2.0 * float(self.value_range)) - float(self.value_range)
 
@@ -154,6 +191,7 @@ class UniformResidualGridCode:
             "version": 0,
             "bits": int(self.bits),
             "value_range": float(self.value_range),
+            "quantizer": self.quantizer,
             "payload_codec": self.codec,
         }
 
@@ -172,14 +210,15 @@ class StaticResidualGridHuffmanCode:
         *,
         bits: int,
         value_range: float,
+        quantizer: ResidualGridQuantizer = "uniform",
         smoothing_count: int = 1,
     ) -> StaticResidualGridHuffmanCode:
-        quantizer = UniformResidualGridCode(bits=bits, value_range=value_range, codec="huffman")
+        quantizer_code = UniformResidualGridCode(bits=bits, value_range=value_range, codec="huffman", quantizer=quantizer)
         values = torch.as_tensor(counts)
-        if values.ndim != 1 or int(values.numel()) != quantizer.levels:
+        if values.ndim != 1 or int(values.numel()) != quantizer_code.levels:
             raise ValueError("counts must have shape [2 ** bits]")
         huffman = StaticHuffmanCode.from_counts(values, smoothing_count=smoothing_count)
-        return cls(quantizer=quantizer, huffman=huffman)
+        return cls(quantizer=quantizer_code, huffman=huffman)
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> StaticResidualGridHuffmanCode:
@@ -189,6 +228,7 @@ class StaticResidualGridHuffmanCode:
             bits=int(payload["bits"]),
             value_range=float(payload["value_range"]),
             codec="huffman",
+            quantizer=_residual_quantizer_from_payload(payload),
         )
         huffman_payload = payload.get("huffman")
         if not isinstance(huffman_payload, dict):
@@ -231,6 +271,7 @@ class StaticResidualGridHuffmanCode:
             "version": 0,
             "bits": int(self.bits),
             "value_range": float(self.value_range),
+            "quantizer": self.quantizer.quantizer,
             "payload_codec": "huffman",
             "huffman": self.huffman.to_dict(),
         }
@@ -251,14 +292,15 @@ class StaticResidualGridPositionHuffmanCode:
         *,
         bits: int,
         value_range: float,
+        quantizer: ResidualGridQuantizer = "uniform",
         smoothing_count: int = 1,
     ) -> StaticResidualGridPositionHuffmanCode:
-        quantizer = UniformResidualGridCode(bits=bits, value_range=value_range, codec="huffman")
+        quantizer_code = UniformResidualGridCode(bits=bits, value_range=value_range, codec="huffman", quantizer=quantizer)
         values = torch.as_tensor(counts)
         if values.ndim != 4:
             raise ValueError("counts must have shape [C, H, W, 2 ** bits]")
         c, h, w, k = (int(v) for v in values.shape)
-        if k != quantizer.levels:
+        if k != quantizer_code.levels:
             raise ValueError("counts last dimension must be 2 ** bits")
         codes = tuple(
             StaticHuffmanCode.from_counts(values[channel, y, x], smoothing_count=smoothing_count)
@@ -266,7 +308,7 @@ class StaticResidualGridPositionHuffmanCode:
             for y in range(h)
             for x in range(w)
         )
-        return cls(quantizer=quantizer, detail_shape=(c, h, w), position_codes=codes)
+        return cls(quantizer=quantizer_code, detail_shape=(c, h, w), position_codes=codes)
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> StaticResidualGridPositionHuffmanCode:
@@ -276,6 +318,7 @@ class StaticResidualGridPositionHuffmanCode:
             bits=int(payload["bits"]),
             value_range=float(payload["value_range"]),
             codec="huffman",
+            quantizer=_residual_quantizer_from_payload(payload),
         )
         shape_raw = payload.get("detail_shape")
         lengths_raw = payload.get("position_code_lengths")
@@ -384,6 +427,7 @@ class StaticResidualGridPositionHuffmanCode:
             "version": 0,
             "bits": int(self.bits),
             "value_range": float(self.value_range),
+            "quantizer": self.quantizer.quantizer,
             "payload_codec": "position_huffman",
             "detail_shape": list(self.detail_shape),
             "position_code_lengths": [list(code.code_lengths) for code in self.position_codes],
@@ -415,14 +459,15 @@ class StaticResidualGridSemanticPositionHuffmanCode:
         value_range: float,
         semantic_shape: tuple[int, int],
         token_to_group: list[int] | tuple[int, ...],
+        quantizer: ResidualGridQuantizer = "uniform",
         smoothing_count: int = 1,
     ) -> StaticResidualGridSemanticPositionHuffmanCode:
-        quantizer = UniformResidualGridCode(bits=bits, value_range=value_range, codec="huffman")
+        quantizer_code = UniformResidualGridCode(bits=bits, value_range=value_range, codec="huffman", quantizer=quantizer)
         values = torch.as_tensor(counts)
         if values.ndim != 5:
             raise ValueError("counts must have shape [C, H, W, G, 2 ** bits]")
         c, h, w, g, k = (int(v) for v in values.shape)
-        if k != quantizer.levels:
+        if k != quantizer_code.levels:
             raise ValueError("counts last dimension must be 2 ** bits")
         if g <= 0:
             raise ValueError("semantic group count must be positive")
@@ -439,7 +484,7 @@ class StaticResidualGridSemanticPositionHuffmanCode:
             for group in range(g)
         )
         return cls(
-            quantizer=quantizer,
+            quantizer=quantizer_code,
             detail_shape=(c, h, w),
             semantic_shape=(int(semantic_shape[0]), int(semantic_shape[1])),
             token_to_group=mapping,
@@ -455,6 +500,7 @@ class StaticResidualGridSemanticPositionHuffmanCode:
             bits=int(payload["bits"]),
             value_range=float(payload["value_range"]),
             codec="huffman",
+            quantizer=_residual_quantizer_from_payload(payload),
         )
         detail_shape_raw = payload.get("detail_shape")
         semantic_shape_raw = payload.get("semantic_shape")
@@ -621,6 +667,7 @@ class StaticResidualGridSemanticPositionHuffmanCode:
             "version": 0,
             "bits": int(self.bits),
             "value_range": float(self.value_range),
+            "quantizer": self.quantizer.quantizer,
             "payload_codec": "semantic_position_huffman",
             "detail_shape": list(self.detail_shape),
             "semantic_shape": list(self.semantic_shape),
@@ -657,14 +704,15 @@ class StaticResidualGridSemanticPositionLeftContextHuffmanCode:
         value_range: float,
         semantic_shape: tuple[int, int],
         token_to_group: list[int] | tuple[int, ...],
+        quantizer: ResidualGridQuantizer = "uniform",
         smoothing_count: int = 1,
     ) -> StaticResidualGridSemanticPositionLeftContextHuffmanCode:
-        quantizer = UniformResidualGridCode(bits=bits, value_range=value_range, codec="huffman")
+        quantizer_code = UniformResidualGridCode(bits=bits, value_range=value_range, codec="huffman", quantizer=quantizer)
         values = torch.as_tensor(counts)
         if values.ndim != 6:
             raise ValueError("counts must have shape [C, H, W, G, L, 2 ** bits]")
         c, h, w, g, l, k = (int(v) for v in values.shape)
-        if k != quantizer.levels:
+        if k != quantizer_code.levels:
             raise ValueError("counts last dimension must be 2 ** bits")
         if g <= 0:
             raise ValueError("semantic group count must be positive")
@@ -676,7 +724,7 @@ class StaticResidualGridSemanticPositionLeftContextHuffmanCode:
         if min(mapping) < 0 or max(mapping) >= g:
             raise ValueError("token_to_group values must be in [0, group_count)")
         codes = []
-        uniform_fallback = torch.ones(quantizer.levels, dtype=torch.float64)
+        uniform_fallback = torch.ones(quantizer_code.levels, dtype=torch.float64)
         for channel in range(c):
             for y in range(h):
                 for x in range(w):
@@ -693,7 +741,7 @@ class StaticResidualGridSemanticPositionLeftContextHuffmanCode:
                                     )
                                 )
         return cls(
-            quantizer=quantizer,
+            quantizer=quantizer_code,
             detail_shape=(c, h, w),
             semantic_shape=(int(semantic_shape[0]), int(semantic_shape[1])),
             token_to_group=mapping,
@@ -710,6 +758,7 @@ class StaticResidualGridSemanticPositionLeftContextHuffmanCode:
             bits=int(payload["bits"]),
             value_range=float(payload["value_range"]),
             codec="huffman",
+            quantizer=_residual_quantizer_from_payload(payload),
         )
         detail_shape_raw = payload.get("detail_shape")
         semantic_shape_raw = payload.get("semantic_shape")
@@ -880,6 +929,7 @@ class StaticResidualGridSemanticPositionLeftContextHuffmanCode:
             "version": 0,
             "bits": int(self.bits),
             "value_range": float(self.value_range),
+            "quantizer": self.quantizer.quantizer,
             "payload_codec": "semantic_position_leftctx_huffman",
             "detail_shape": list(self.detail_shape),
             "semantic_shape": list(self.semantic_shape),
@@ -910,6 +960,8 @@ class StaticResidualGridHybridHuffmanCode:
             raise ValueError("hybrid codes must use the same quantizer bits")
         if abs(self.position_code.value_range - self.semantic_position_code.value_range) > 1.0e-9:
             raise ValueError("hybrid codes must use the same value_range")
+        if self.position_code.quantizer.quantizer != self.semantic_position_code.quantizer.quantizer:
+            raise ValueError("hybrid codes must use the same residual quantizer")
         if self.position_code.detail_shape != self.semantic_position_code.detail_shape:
             raise ValueError("hybrid codes must use the same detail_shape")
 
@@ -1032,6 +1084,7 @@ class StaticResidualGridHybridHuffmanCode:
             "version": 0,
             "bits": int(self.bits),
             "value_range": float(self.value_range),
+            "quantizer": self.position_code.quantizer.quantizer,
             "payload_codec": "hybrid_huffman",
             "position_code": self.position_code.to_dict(),
             "semantic_position_code": self.semantic_position_code.to_dict(),
